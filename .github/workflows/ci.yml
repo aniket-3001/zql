@@ -1,0 +1,82 @@
+# zql — continuous integration.
+#
+# The first job is not a formality. "Dependency proof — command output or a CI
+# log" is a listed deliverable, and a log produced by a machine that is not the
+# author's is worth more than a text file the author pasted. It runs on every
+# push, so the headline claim is re-proven continuously rather than once.
+#
+# Scoped to what exists. There is no src/ yet, so there is nothing to build and
+# nothing to test — a workflow asserting otherwise would be red from its first
+# push and stay red, which is worse than no badge at all. Build, test and the
+# reproducibility check are added once there is something for them to check.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # Incremental compilation caches per-run state that leaks into output, and
+  # nothing here is rebuilt often enough to want it.
+  CARGO_INCREMENTAL: "0"
+
+jobs:
+  manifest:
+    name: empty dependency manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: cargo tree shows exactly one node
+        run: |
+          cargo tree | tee /tmp/tree.txt
+          lines=$(grep -c . /tmp/tree.txt)
+          test "$lines" -eq 1 || { echo "::error::cargo tree has $lines nodes, expected 1"; exit 1; }
+
+      - name: and still one with every edge kind included
+        run: |
+          # --edges all covers dev- and build-dependencies too, which a plain
+          # `cargo tree` would not show. An empty manifest has to mean empty.
+          cargo tree --edges all | tee /tmp/all.txt
+          test "$(grep -c . /tmp/all.txt)" -eq 1
+
+      - name: Cargo.lock contains only this crate
+        run: |
+          packages=$(grep -c '^\[\[package\]\]' Cargo.lock)
+          test "$packages" -eq 1 || { echo "::error::Cargo.lock has $packages packages"; exit 1; }
+
+      - name: the [dependencies] section is empty
+        run: |
+          # Everything from [dependencies] to the next section header, with
+          # comments and blanks removed, must be nothing at all.
+          body=$(awk '/^\[dependencies\]/{f=1;next} /^\[/{f=0} f' Cargo.toml \
+                 | grep -v '^[[:space:]]*#' | grep -v '^[[:space:]]*$' || true)
+          test -z "$body" || { echo "::error::[dependencies] is not empty:"; echo "$body"; exit 1; }
+
+      - name: no unsafe, no FFI, no shelling out, no build script
+        run: |
+          # Word-anchored on purpose. An earlier hand-run of this check searched
+          # for bare substrings and reported zero by luck: "external" contains
+          # "extern", and two comments in src/dash/page.rs use the word.
+          fail=0
+          for pattern in unsafe extern; do
+            hits=$(grep -rnw "$pattern" src/ | wc -l)
+            test "$hits" -eq 0 || { echo "::error::found $hits uses of \`$pattern\`"; grep -rnw "$pattern" src/; fail=1; }
+          done
+          for pattern in 'Command::new' '#\[link' 'link_name' 'dlopen'; do
+            hits=$(grep -rn "$pattern" src/ | wc -l)
+            test "$hits" -eq 0 || { echo "::error::found $pattern"; fail=1; }
+          done
+          test ! -f build.rs || { echo "::error::a build script would break the one-command build"; fail=1; }
+          exit $fail
+
+      - name: the build needs one command and nothing installed
+        run: |
+          # No fixture generation, no codegen, no second toolchain. If this ever
+          # stops being true, the highest-weighted criterion is the one it costs.
+          test ! -f build.rs
+          echo "cargo build --release is the whole build"
