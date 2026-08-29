@@ -39,9 +39,13 @@ impl TextEncoding {
         match self {
             TextEncoding::Utf8 => String::from_utf8_lossy(bytes).into_owned(),
             TextEncoding::Utf16Le | TextEncoding::Utf16Be => {
-                let units = bytes.chunks_exact(2).map(|pair| match self {
-                    TextEncoding::Utf16Le => u16::from_le_bytes([pair[0], pair[1]]),
-                    _ => u16::from_be_bytes([pair[0], pair[1]]),
+                // `as_chunks` yields `&[u8; 2]` directly, so the pair needs no
+                // indexing and cannot be the wrong length. A trailing odd byte
+                // is dropped, exactly as `chunks_exact` dropped it.
+                let (pairs, _odd_trailing_byte) = bytes.as_chunks::<2>();
+                let units = pairs.iter().map(|pair| match self {
+                    TextEncoding::Utf16Le => u16::from_le_bytes(*pair),
+                    _ => u16::from_be_bytes(*pair),
                 });
                 char::decode_utf16(units)
                     .map(|result| result.unwrap_or(char::REPLACEMENT_CHARACTER))
