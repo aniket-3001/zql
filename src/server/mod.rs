@@ -327,15 +327,29 @@ impl Server {
         // money over a 127,000-row scan. Flushing on a short timer gets both:
         // bulk results still go out in full buffers, and a trickle of live rows
         // reaches the client within a frame.
+        //
+        // **A timer alone is not enough, and this is the subtle part.** It is
+        // only ever consulted *after* a row arrives, so a source that stops
+        // producing stops triggering it — and stopping is exactly what `tail()`
+        // does between log lines. Three lines already read off disk would sit
+        // encoded in the buffer, invisible, until somebody appended a fourth.
+        // A live source therefore flushes on every row: it produces them at
+        // human speed, so the syscall costs nothing there, and the timer keeps
+        // doing its job for the bulk scans it was written for.
         const FLUSH_INTERVAL: std::time::Duration = std::time::Duration::from_millis(50);
         let mut last_flush = std::time::Instant::now();
+        let live = stream.may_block();
+
+        // The schema goes out now rather than riding along with the first row,
+        // which for a quiet `tail()` may be a long time coming.
+        writer.flush()?;
 
         loop {
             match stream.next() {
                 Ok(Some(row)) => {
                     send(writer, &backend::data_row(&row))?;
                     rows += 1;
-                    if last_flush.elapsed() >= FLUSH_INTERVAL {
+                    if live || last_flush.elapsed() >= FLUSH_INTERVAL {
                         writer.flush()?;
                         last_flush = std::time::Instant::now();
                     }
@@ -782,7 +796,7 @@ mod tests {
         assert!(!registry.cancel(9001, 42), "the entry outlived unregister");
     }
 
-/// A stack overflow is the one failure `catch_unwind` cannot contain.
+    /// A stack overflow is the one failure `catch_unwind` cannot contain.
     ///
     /// Unlike a panic, it aborts the process, so a single connection sending a
     /// deeply nested expression would take every other session and the listener

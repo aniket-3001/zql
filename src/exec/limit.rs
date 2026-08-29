@@ -50,7 +50,13 @@ impl RowIter for LimitIter {
         }
         Ok(row)
     }
+
+    /// A pass-through: this operator waits exactly as long as its input does.
+    fn may_block(&self) -> bool {
+        self.input.may_block()
+    }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

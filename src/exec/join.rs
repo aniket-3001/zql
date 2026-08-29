@@ -136,7 +136,14 @@ impl RowIter for JoinIter {
             }
         }
     }
+
+    /// The right side is materialised before the first row, so only the
+    /// streaming left side can leave the join waiting.
+    fn may_block(&self) -> bool {
+        self.left.may_block()
+    }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

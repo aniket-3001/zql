@@ -136,7 +136,17 @@ impl RowIter for TailIter {
             self.wait()?;
         }
     }
+
+    /// The one source in zql that says yes.
+    ///
+    /// Between two log lines this iterator is asleep, so the session must push
+    /// what it has already written before calling `next` again. See
+    /// [`RowIter::may_block`](crate::exec::RowIter::may_block).
+    fn may_block(&self) -> bool {
+        true
+    }
 }
+
 impl TailIter {
     /// Sleeps for one poll interval, in short slices so that a cancellation is
     /// noticed promptly rather than after the whole interval.
@@ -378,6 +388,43 @@ mod tests {
 
         let row = scan.next().unwrap().expect("the recreated file's line");
         assert!(matches!(&row.0[0], Value::Text(t) if t == "recreated"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The flag the session reads to decide when to push its write buffer.
+    ///
+    /// Without it, rows already read off disk sit encoded in the `BufWriter`
+    /// until something appends to the log — which for a quiet log is forever.
+    /// Measured before the flag existed: three lines already on disk, and the
+    /// client received nothing at all.
+    #[test]
+    fn a_tail_stream_reports_that_it_may_block_and_a_finite_one_does_not() {
+        let path = scratch("zql-tail-mayblock.log");
+        std::fs::write(&path, "one
+").unwrap();
+
+        let source = TailSource::open(&path).unwrap();
+        let flag: CancelFlag = Arc::new(AtomicBool::new(false));
+        let scan = source.scan(&flag).unwrap();
+        assert!(scan.may_block(), "tail() waits between lines and must say so");
+
+        // The wrappers a real plan puts above it have to pass the answer up, or
+        // the session never learns it is reading a live source.
+        let scanned = crate::exec::scan::ScanIter::new(
+            source.scan(&flag).unwrap(),
+            Arc::clone(&flag),
+        );
+        assert!(scanned.may_block(), "ScanIter dropped the answer");
+        let limited = crate::exec::limit::LimitIter::new(Box::new(scanned), Some(1), 0);
+        assert!(limited.may_block(), "LimitIter dropped the answer");
+
+        // A finite source must not opt in, or every bulk scan pays a syscall
+        // per row.
+        let finite = crate::exec::values::ValuesIter::new(vec![Row::new(vec![Value::Int(1)])]);
+        assert!(!finite.may_block());
+        let finite = crate::exec::limit::LimitIter::new(Box::new(finite), Some(1), 0);
+        assert!(!finite.may_block(), "a finite plan claimed it blocks");
 
         let _ = std::fs::remove_file(&path);
     }

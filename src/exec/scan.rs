@@ -33,7 +33,13 @@ impl RowIter for ScanIter {
         }
         self.source.next()
     }
+
+    /// A pass-through: this operator waits exactly as long as its input does.
+    fn may_block(&self) -> bool {
+        self.source.may_block()
+    }
 }
+
 #[cfg(test)]
 mod tests {
     use super::*;

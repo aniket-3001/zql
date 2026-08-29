@@ -49,7 +49,23 @@ use crate::value::Row;
 pub trait RowIter {
     /// The next row, or `Ok(None)` when the stream is exhausted.
     fn next(&mut self) -> Result<Option<Row>>;
+
+    /// Whether this stream can wait indefinitely between rows.
+    ///
+    /// A finite source either has its next row ready or is done, so the session
+    /// may buffer its output and flush on a timer. `tail()` is different: it
+    /// sleeps between log lines, and anything already written has to reach the
+    /// client *before* that sleep rather than after it — otherwise the rows sit
+    /// in the write buffer for as long as the log stays quiet, which for a log
+    /// that nobody is writing to is forever.
+    ///
+    /// Default `false`, so only the one source that actually blocks has to say
+    /// so; the wrappers below pass the answer up from whatever they read.
+    fn may_block(&self) -> bool {
+        false
+    }
 }
+
 /// Turns a plan into a running operator tree.
 ///
 /// The cancel flag is threaded to the leaves rather than checked here: a
