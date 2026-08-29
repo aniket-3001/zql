@@ -7,4 +7,5 @@
 //!
 //! It is read-only, and it never opens the file for writing.
 
+pub mod pager;
 pub mod record;
