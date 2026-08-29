@@ -31,7 +31,7 @@ Still in `../../planning/`: `FINALISTS.md` (zql vs darkroom, the full comparison
 actually wins Raptors events), `OPTIONS.md`, `PREFLIGHT.md`, `JOURNAL.md`.
 
 darkroom — the runner-up — has its own folder: `../../Darkroom/docs/`. Its
-`SCHEDULE-72H.md` and `DEMO-SCRIPT.md` moved there with it; **zql needs its own of both.**
+`SCHEDULE-72H.md` moved there with it.
 
 ---
 
@@ -69,7 +69,9 @@ an hour-38 one.
 
 - [ ] **WAL handling** — refuse loudly (~20 lines) vs read the `-wal` sidecar (~150)
 - [ ] **CSV type sniffing** — all-Text vs sniff over the first 100 rows (~60 lines); leaning sniff
-- [ ] **Write zql's own `SCHEDULE-72H.md` and `DEMO-SCRIPT.md`** around the gates in
+- [x] ~~**Write zql's own demo script.**~~ Written, and kept outside the repo — a
+      presenter's script is for the presenter, not for a judge reading the source.
+- [ ] **Write zql's own `SCHEDULE-72H.md`** around the gates in
       `ARCHITECTURE.md` §10. The existing pair are darkroom's and now live in
       `../../Darkroom/docs/`
 - [ ] **Delete the six spikes before kickoff:** `scratchpad/pgspike/`, `jpegspike/`,

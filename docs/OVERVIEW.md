@@ -318,7 +318,7 @@ wire protocol.
 - [ ] Freeze the SQL subset in writing, **day one, before any parser code**
 - [ ] Write zql's own `SCHEDULE-72H.md` around the G0-G9 gates *(the existing one is
       darkroom's and now lives in `../../Darkroom/docs/`)*
-- [ ] Write zql's own `DEMO-SCRIPT.md`: cold-open on `psql` connecting, not on a query
+- [x] ~~Write zql's own demo script~~ — written, kept outside the repo
       *(darkroom's is in `../../Darkroom/docs/`)*
 - [ ] Decide dashboard in/out **by H+30**, not later
 - [ ] Keep `psql` at `D:\Aniket\rust\tmp\pg\pgsql\bin\psql.exe` as the conformance oracle
