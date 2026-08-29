@@ -21,6 +21,7 @@
 
 pub mod datetime;
 pub mod error;
+pub mod plan;
 pub mod server;
 pub mod sql;
 pub mod value;
