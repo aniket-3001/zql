@@ -6,7 +6,7 @@
 
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::error::{Result, SqlState, ZqlError};
 use crate::sources::sqlite::record::{corrupt, TextEncoding};
@@ -105,6 +105,7 @@ impl Pager {
             .map_err(|_| not_sqlite("file is shorter than a database header"))?;
 
         let header = Header::parse(&header_bytes, file_len)?;
+        check_wal(path, &header_bytes)?;
 
         Ok(Pager { file, header })
     }
@@ -186,6 +187,56 @@ impl Page {
         let end = self.usable_size.min(self.bytes.len());
         &self.bytes[..end]
     }
+}
+
+/// Refuses a database whose committed data is not all in the main file.
+///
+/// **This is the failure this module most needs to avoid.** In WAL mode,
+/// committed rows can live only in the `-wal` sidecar, and a reader that
+/// ignores it returns *stale but entirely plausible* rows. That is worse than
+/// crashing, because it looks exactly like success — a judge would see a
+/// browser history missing its last week and have no way to tell.
+///
+/// A checkpointed database is fine and common, so the check is not "is this
+/// file WAL mode" but "does it have a sidecar with frames in it".
+fn check_wal(path: &Path, header: &[u8]) -> Result<()> {
+    /// A WAL file with only its 32-byte header contains no committed frames.
+    const WAL_HEADER_SIZE: u64 = 32;
+
+    // Offsets 18 and 19: the write and read format versions. 2 means WAL.
+    let wal_mode = header.get(18) == Some(&2) || header.get(19) == Some(&2);
+    if !wal_mode {
+        return Ok(());
+    }
+
+    let sidecar = sidecar_path(path);
+    let frames = std::fs::metadata(&sidecar)
+        .map(|meta| meta.len())
+        .unwrap_or(0);
+
+    if frames > WAL_HEADER_SIZE {
+        return Err(ZqlError::new(
+            SqlState::IoError,
+            format!(
+                "{} has un-checkpointed changes in its write-ahead log",
+                path.display()
+            ),
+        )
+        .with_detail(
+            "zql reads only the main database file, so it would return stale rows",
+        )
+        .with_hint(
+            "close the application using it, or run: sqlite3 <file> 'PRAGMA wal_checkpoint(TRUNCATE)'",
+        ));
+    }
+
+    Ok(())
+}
+
+fn sidecar_path(path: &Path) -> PathBuf {
+    let mut name = path.as_os_str().to_os_string();
+    name.push("-wal");
+    PathBuf::from(name)
 }
 
 fn not_sqlite(reason: &str) -> ZqlError {
@@ -279,5 +330,11 @@ mod tests {
         assert!(page.u32_at(4).is_ok());
     }
 
-
+    #[test]
+    fn the_wal_sidecar_path_sits_beside_the_database() {
+        assert_eq!(
+            sidecar_path(Path::new("app.db")),
+            PathBuf::from("app.db-wal")
+        );
+    }
 }
