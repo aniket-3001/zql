@@ -20,3 +20,4 @@
 //! something the operators discover as they run.
 
 pub mod error;
+pub mod value;
