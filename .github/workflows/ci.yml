@@ -5,10 +5,9 @@
 # author's is worth more than a text file the author pasted. It runs on every
 # push, so the headline claim is re-proven continuously rather than once.
 #
-# Scoped to what exists. There is no src/ yet, so there is nothing to build and
-# nothing to test — a workflow asserting otherwise would be red from its first
-# push and stay red, which is worse than no badge at all. Build, test and the
-# reproducibility check are added once there is something for them to check.
+# The rest exists to catch the two things local testing cannot: that the
+# one-command build really does work on a machine with nothing but Rust on it,
+# and that it works somewhere other than Windows.
 
 name: CI
 
@@ -103,3 +102,72 @@ jobs:
           # stops being true, the highest-weighted criterion is the one it costs.
           test ! -f build.rs
           echo "cargo build --release is the whole build"
+
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install the toolchain
+        run: rustup update stable && rustup default stable
+
+      - name: the one-command build
+        run: cargo build --release
+
+      - name: tests, release
+        run: cargo test --release
+
+      # Debug frames are several times larger than release ones, which is what
+      # MAX_EXPR_DEPTH is actually sized against — the nested-call shape aborts
+      # around 110 levels in debug against ~1750 in release. Running both is the
+      # only way that limit stays honest.
+      - name: tests, debug
+        run: cargo test
+
+      - name: clippy, warnings are errors
+        run: |
+          rustup component add clippy
+          cargo clippy --all-targets -- -D warnings
+
+  reproducible:
+    name: reproducible build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: build twice from clean and compare
+        run: |
+          set -euo pipefail
+          export SOURCE_DATE_EPOCH=1000000000
+          bin=target/release/zql
+
+          build_and_hash () {
+            # `cargo clean --release` once left the previous binary in place and
+            # the second build finished in 0.03s without recompiling, so the
+            # hashes matched because nothing had been rebuilt. A comparison like
+            # that passes forever and proves nothing. Delete the directory and
+            # assert the binary is *gone* before trusting the build that follows.
+            rm -rf target/release
+            test ! -f "$bin"
+            cargo build --release
+            sha256sum "$bin" | cut -d' ' -f1
+          }
+
+          first=$(build_and_hash)
+          second=$(build_and_hash)
+          echo "build 1: $first"
+          echo "build 2: $second"
+          test "$first" = "$second" || { echo "::error::builds differ"; exit 1; }
+          echo "byte-identical across two clean builds"
+
+      # The hash published in README.md is for x86_64-pc-windows-gnu on the
+      # author's machine, and this job cannot reproduce it — a Linux ELF is not
+      # a Windows PE. What it proves is the property rather than the value: the
+      # build is deterministic, on a machine nobody involved controls.
+      - name: note the envelope
+        run: echo "determinism proven here; the published hash is windows-gnu specific"
