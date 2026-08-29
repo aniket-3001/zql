@@ -100,20 +100,88 @@ build write-up rather than the code. `JOURNAL.md` exists to feed it — append f
 
 ---
 
+## 4b. The published cheat-sheets, checked against zql
+
+Posted 2026-08-26 at `zerodepshack.com/cheatsheets/`. Read on 2026-08-30 and audited
+against the code rather than skimmed. Three things came out of it.
+
+**It overturned the track.** See §5 — the biggest single item, and the reason reading
+these was worth the hour.
+
+**Two rulings that settle questions we did not have to ask.** "Bun and Deno built-ins
+count" and "`node:sqlite` is a Release Candidate, not an experiment" are both about
+JavaScript runtimes, so neither touches us. Worth knowing they exist: the pattern is that
+runtime APIs are inside the line and the reasoning belongs in `STDLIB.md`.
+
+**Its Rust section matches what we built, which is a useful negative result.** Every gap
+it names is one zql had to fill:
+
+| The cheat-sheet says Rust `std` has no… | zql |
+| --- | --- |
+| async runtime — *"threads plus `std::sync::mpsc` are your answer"* | `std::thread` per connection, blocking IO |
+| JSON | hand-written escaping in `dash::sse` |
+| HTTP client or server — *"`TcpListener` plus a hand-rolled HTTP/1.1 parser is the realistic path… plan for it on day one"* | `dash::mod` — and it was day one |
+| `rand` | the backend secret is `SystemTime` nanos mixed with a counter, said plainly in the README |
+| date formatting | `datetime.rs`, days-from-civil |
+| regex | the `LIKE` matcher, backtracking rather than recursive |
+
+Its "instead of installing it" table for Rust lists six crates. zql uses **none** of them,
+and already replaces the two that matter here — `tokio` and `clap`. `itoa`, `once_cell`,
+`fs2` and `crossbeam-channel` never came up.
+
+**One thing it named that we could still take.** `format_into` with `core::fmt::NumBuffer`
+landed in **Rust 1.98** and is called *"the cleanest kill on this list"* for replacing
+`itoa`. zql renders every integer on the wire with `to_string()`, which allocates per
+value; `NumBuffer` would not. It is a real improvement and it is **not taken**, for two
+reasons: the toolchain is pinned to 1.97.1 and every piece of reproducible-build evidence
+was produced against it, and Package Killer is not the declared bonus. Recorded here so
+the decision is visible rather than looking like an oversight.
+
+*(Also from the cheat-sheet: `<[T]>::as_chunks`, stabilised in 1.88, which zql already
+uses in the UTF-16 decoder — arrived there by way of a clippy lint rather than this page.)*
+
+---
+
 ## 5. Tracks — pick exactly one
 
 | Track | | zql |
 | --- | --- | --- |
 | A | Developer Tools & CLI | plausible |
-| B | Parsers & Data Formats | plausible |
-| **D** | **Data & Storage** | ✅ **the pick** |
+| **B** | **Parsers & Data Formats** | ✅ **the pick** |
+| D | Data & Storage | ~~the earlier pick~~ — **overturned, see below** |
 | C / E / F | Web & Network / Security & Crypto / Wildcard | no |
 
-**Track D.** zql is a query engine over data files — SQLite B-trees, CSV, the filesystem.
-Track B would undersell it as a parser exercise; Track A would undersell the format work
-that carries the 30% criterion. Track F would require a rationale in the README for no gain.
+**Track B — decided 2026-08-30, overturning the 2026-08-17 choice of Track D.**
 
-*(This was not recorded in earlier planning at all — the entry form requires a track.)*
+The original reasoning was that Track B would "undersell it as a parser exercise". That
+was a guess about how the track is graded, made before the cheat-sheets were published on
+2026-08-26. The published guidance says otherwise, and it is specific enough to settle it.
+
+**Track D's grade is durability.** In its own words: *"fsync after append, or say plainly
+in the README that you did not"*, and *"a log-structured store plus an in-memory index is
+the shape that fits in 72 hours and survives a restart"*. **zql is read-only and never
+opens a file for writing** — there are zero write calls in `src/`. It cannot score on any
+of that, because there is nothing to make durable. The only Track D criterion it meets is
+the negative one: it does not wrap `sqlite3` and call that a storage engine.
+
+**Track B's grade is what zql spent its 72 hours on.** Point by point:
+
+| Track B says | zql |
+| --- | --- |
+| *"keep a byte offset and a line/column counter from the first character"* | every `Token` carries a 1-based position; it is what draws `psql`'s caret, and it is also how the DDL parser recovers a column's original case |
+| *"retrofitting this on day three is miserable"* | it was in `token.rs` from the first commit |
+| *"table-driven tests over a corpus of ugly inputs"* | 295 tests, including every canonical query truncated at every byte and mangled at every position |
+| *"target a suite judges can run"* | Python's `sqlite3` wrote the fixtures and supplies every expected value; `psql` and node-postgres check the protocol |
+| *sinks it: "a parser that only handles the happy path"* | 62 deliberately corrupted databases, all producing errors and no panics |
+
+zql is, structurally, **five parsers**: SQL (lexer and Pratt parser), the SQLite file
+format (b-tree, varints, serial types, overflow chains), `CREATE TABLE` DDL, RFC 4180 CSV,
+and the PostgreSQL v3 wire protocol. That is the track.
+
+**The counter-argument, for the record:** a judge may read "Parsers & Data Formats" as
+underselling a working query engine with a network server attached. That is a real cost.
+It is the smaller one — the parsers are where the 30% Craft criterion is won, and the
+track should point at them rather than at a durability story that does not exist.
 
 ---
 
