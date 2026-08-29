@@ -25,7 +25,11 @@ pub mod scan;
 pub mod sort;
 pub mod values;
 
+use std::sync::Arc;
+
 use crate::error::Result;
+use crate::plan::plan::Plan;
+use crate::server::cancel::CancelFlag;
 use crate::value::Row;
 
 /// A stream of rows.
@@ -45,6 +49,73 @@ use crate::value::Row;
 pub trait RowIter {
     /// The next row, or `Ok(None)` when the stream is exhausted.
     fn next(&mut self) -> Result<Option<Row>>;
+}
+/// Turns a plan into a running operator tree.
+///
+/// The cancel flag is threaded to the leaves rather than checked here: a
+/// filter that rejects a million rows never yields to its caller, so a check
+/// at the top of the tree alone would leave a long scan uninterruptible.
+pub fn execute(plan: Plan, cancel: CancelFlag) -> Result<Box<dyn RowIter>> {
+    Ok(match plan {
+        Plan::Values { rows, .. } => Box::new(values::ValuesIter::new(rows)),
+
+        Plan::Scan { source, .. } => {
+            let rows = source.scan(&cancel)?;
+            Box::new(scan::ScanIter::new(rows, cancel))
+        }
+
+        Plan::Filter { input, predicate } => {
+            let input = execute(*input, cancel)?;
+            Box::new(filter::FilterIter::new(input, predicate))
+        }
+
+        Plan::Project { input, exprs, .. } => {
+            let input = execute(*input, cancel)?;
+            Box::new(project::ProjectIter::new(input, exprs))
+        }
+
+        Plan::Limit {
+            input,
+            limit,
+            offset,
+        } => {
+            let input = execute(*input, cancel)?;
+            Box::new(limit::LimitIter::new(input, limit, offset))
+        }
+
+        Plan::Aggregate {
+            input,
+            keys,
+            aggregates,
+            ..
+        } => {
+            let input = execute(*input, cancel)?;
+            Box::new(aggregate::AggregateIter::new(input, keys, aggregates))
+        }
+
+        Plan::Sort { input, keys } => {
+            let input = execute(*input, cancel)?;
+            Box::new(sort::SortIter::new(input, keys))
+        }
+
+        Plan::Distinct { input } => {
+            let input = execute(*input, cancel)?;
+            Box::new(distinct::DistinctIter::new(input))
+        }
+
+        Plan::Join {
+            left,
+            right,
+            condition,
+            kind,
+            ..
+        } => {
+            let right_width = right.schema().len();
+            let left = execute(*left, Arc::clone(&cancel))?;
+            let right = execute(*right, cancel)?;
+            Box::new(join::JoinIter::new(left, right, condition, kind, right_width))
+        }
+    })
 }
 
 /// Drains a stream into a vector.
