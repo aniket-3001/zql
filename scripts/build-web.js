@@ -63,4 +63,12 @@ console.log('generating the demo database');
 const python = process.platform === 'win32' ? 'python' : 'python3';
 run(python, [path.join('scripts', 'make-demo-db.py'), path.join('web', 'fixtures')]);
 
+// The page mounts whatever this file lists. Generated rather than hardcoded in
+// app.js, because a hardcoded copy silently drops any fixture added later: the
+// query then fails at runtime with a path error that points at nothing obvious,
+// and it fails on the deployed site rather than here.
+const staged = fs.readdirSync(fixtures).filter((name) => name !== 'index.json');
+fs.writeFileSync(path.join(fixtures, 'index.json'), JSON.stringify(staged, null, 2));
+console.log(`  web/fixtures/index.json  lists ${staged.length} files`);
+
 console.log('\nplayground built. serve web/ over http, or run: node scripts/verify-web.js');

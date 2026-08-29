@@ -31,10 +31,12 @@ async function boot() {
   try {
     status.textContent = 'loading the engine…';
 
-    // The fixtures are the repository's, byte for byte — the build copies them
-    // out of tests/fixtures rather than making browser-friendly substitutes, so
-    // the page reads what the test suite reads.
-    const names = ['places.sqlite', 'simple.db', 'hard.db', 'owners.csv', 'README.txt'];
+    // The fixture list comes from the build rather than being written here.
+    // It was hardcoded once, and adding a file to the demo then meant the page
+    // silently did not mount it — the query worked locally and failed on the
+    // deployed site with a "no such file" that pointed at nothing obvious.
+    // The build knows what it staged; the page asks it.
+    const names = await (await fetch('fixtures/index.json')).json();
     const files = {};
     await Promise.all(names.map(async (name) => {
       const res = await fetch(`fixtures/${name}`);

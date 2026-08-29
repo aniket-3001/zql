@@ -226,3 +226,13 @@ body.presenting #present { display: none; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
 }
+
+/* The pipeline diagram on "How it works" — the architecture beat of the talk. */
+.pipeline {
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 4px;
+  padding: 1rem 1.15rem; margin: 1.25rem 0; overflow-x: auto;
+  font-family: var(--mono); font-size: 0.78rem; line-height: 1.7;
+  color: var(--ink-soft); white-space: pre;
+}
+.story.alt .pipeline { background: var(--paper); }
+.sub.small { font-size: 0.85rem; margin-top: 1rem; }

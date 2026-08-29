@@ -38,6 +38,7 @@ const TYPES = {
   '.sqlite': 'application/octet-stream',
   '.csv': 'text/csv',
   '.txt': 'text/plain; charset=utf-8',
+  '.json': 'application/json',
 };
 
 function chromePath() {
@@ -118,6 +119,18 @@ const CHECKS = [
 
   ['csv(): quoting and type sniffing', "SELECT * FROM csv('/demo/owners.csv')",
     (r) => r.kind === 'rows' && r.rows.length > 0],
+
+  // The demo's anchor query, and the one thing no ordinary tool does: a CSV and
+  // a SQLite database in the same question. Two reading-list rows were never
+  // visited, so the LEFT JOIN leaves them unmatched and COUNT — which skips
+  // NULLs — reports 0 rather than 1. If that ever reads 1, the demo is lying.
+  ['the anchor query: a CSV joined to a SQLite database',
+    `SELECT r.title, COUNT(p.id) AS times_visited
+     FROM csv('/demo/reading-list.csv') AS r
+     LEFT JOIN sqlite('/demo/places.sqlite','moz_places') AS p ON p.url LIKE r.url_pattern
+     GROUP BY r.title ORDER BY times_visited DESC`,
+    (r) => r.kind === 'rows' && r.rows.length === 7
+        && r.rows.filter((x) => x[1] === '0').length === 2],
 
   ['SHOW SOURCES lists five', "SHOW SOURCES",
     (r) => r.rows.length === 5],

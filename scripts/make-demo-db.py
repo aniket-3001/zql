@@ -82,7 +82,28 @@ con.executemany(
 con.commit()
 con.close()
 
-# A couple of ordinary files so `files('/demo')` has a directory to walk.
+# The reading list, which is the demo's entire point in one small file.
+#
+# "Which of the links people sent me have I actually read?" needs a CSV and a
+# SQLite database in the same query, and there is no ordinary tool that answers
+# it. Two of these were never visited, so the LEFT JOIN has something real to
+# leave unmatched — and COUNT skipping NULLs is what makes those come back 0
+# rather than 1.
+READING_LIST = [
+    ("The Rust Book",          "priya", "%doc.rust-lang.org%"),
+    ("SQLite file format",     "sam",   "%sqlite.org%"),
+    ("Postgres wire protocol", "priya", "%postgresql.org%"),
+    ("That HN thread",         "alex",  "%ycombinator%"),
+    ("Wikipedia rabbit hole",  "sam",   "%wikipedia.org%"),
+    ("Paper I promised to read", "alex", "%arxiv.org%"),
+    ("Blog post about DNS",    "priya", "%blog.example.net%"),
+]
+with open(os.path.join(out, "reading-list.csv"), "w", encoding="utf-8", newline="") as f:
+    f.write("title,sent_by,url_pattern\n")
+    for title, sender, pattern in READING_LIST:
+        f.write(f"{title},{sender},{pattern}\n")
+
+# An ordinary file so `files('/demo')` has something recognisable to list.
 with open(os.path.join(out, "README.txt"), "w", encoding="utf-8") as f:
     f.write(
         "These files are mounted into an in-memory filesystem in your browser.\n"

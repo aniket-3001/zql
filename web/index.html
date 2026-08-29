@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>zql — SQL over your files, with an empty dependency manifest</title>
-<meta name="description" content="A read-only SQL engine that speaks the PostgreSQL wire protocol, written against the Rust standard library alone. Run it here — the engine on this page is the engine that ships.">
+<title>zql — SQL over the files you already have</title>
+<meta name="description" content="Open any .db file and query it with SQL. Written against the Rust standard library alone — the dependency manifest is empty. Try it here: the engine on this page is the engine that ships.">
 <link rel="stylesheet" href="style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🗃️</text></svg>">
 </head>
@@ -15,9 +15,10 @@
     <p class="eyebrow">Zero Dependency Hackathon · Track B, Parsers &amp; Data Formats</p>
     <h1>zql</h1>
     <p class="lede">
-      Open any <code>.db</code> file and query it with SQL. Your browser history,
-      your app data, your phone backup. <strong>Nothing to install</strong> —
-      it speaks the PostgreSQL wire protocol, so <code>psql</code> already works.
+      Your browser history is a SQLite file on your disk right now. So is your
+      phone backup, and your notes app. <strong>You can't open any of them.</strong>
+      zql opens them, and lets you query them with SQL — joined against your CSVs
+      and your filesystem.
     </p>
     <pre class="manifest"><span class="c">$</span> cargo tree
 zql v0.1.0
@@ -25,7 +26,7 @@ zql v0.1.0
 <span class="c"># one node. no crates, no vendored source, no FFI, no unsafe.</span></pre>
     <p class="cta-row">
       <a class="cta" href="#play">Try it below</a>
-      <a class="cta ghost" href="https://github.com/aniket-3001/zql">Source on GitHub</a>
+      <a class="cta ghost" href="https://github.com/aniket-3001/zql">Source</a>
       <button id="present" class="cta ghost" type="button">Present ⏵</button>
     </p>
   </div>
@@ -36,55 +37,38 @@ zql v0.1.0
 <!-- ------------------------------------------------------------- the play -->
 <section id="play" class="play" data-slide>
   <div class="wrap">
-    <h2>Run it. This is the real engine.</h2>
+    <h2>Try it. This is the real engine.</h2>
     <p class="sub">
-      zql's library is compiled to WebAssembly and running in your browser. Every
-      query below goes through the same <code>parse</code> → <code>bind</code> →
-      <code>execute</code> path the server uses over a socket. The
+      zql compiled to WebAssembly, running in your browser. The
       <code>.sqlite</code> file is a real SQLite database — the reader walks its
-      b-tree here exactly as it would on disk.
+      b-tree here exactly as it would on your disk. Start at the top and work
+      down; they tell one story.
     </p>
 
     <div class="presets">
-      <button data-q="SELECT title, visit_count FROM sqlite('/demo/places.sqlite', 'moz_places')
-ORDER BY visit_count DESC
-LIMIT 10;">The cold open — browser history</button>
-      <button data-q="SELECT * FROM sqlite('/demo/places.sqlite');">Forget the table name</button>
-      <button data-q="SELECT
-  CASE WHEN url LIKE '%github%'       THEN 'github'
-       WHEN url LIKE '%ycombinator%'  THEN 'hacker news'
-       ELSE 'everything else' END      AS site,
-  COUNT(*)                             AS visits,
-  ROUND(AVG(frecency), 1)              AS avg_frecency
+      <button data-q="SELECT title, visit_count
 FROM sqlite('/demo/places.sqlite', 'moz_places')
-GROUP BY CASE WHEN url LIKE '%github%'      THEN 'github'
-              WHEN url LIKE '%ycombinator%' THEN 'hacker news'
-              ELSE 'everything else' END
-HAVING COUNT(*) > 20
-ORDER BY visits DESC;">GROUP BY over a CASE</button>
-      <button data-q="SELECT p.title, b.title AS bookmark
-FROM sqlite('/demo/places.sqlite', 'moz_places')   AS p
-JOIN sqlite('/demo/places.sqlite', 'moz_bookmarks') AS b ON p.id = b.fk
-ORDER BY p.id
-LIMIT 8;">Join two tables</button>
-      <button data-q="SELECT name, ext, size FROM files('/demo') ORDER BY size DESC;">Query the filesystem</button>
-      <button data-q="SELECT * FROM csv('/demo/owners.csv');">Read a CSV</button>
-      <button data-q="SELECT
-  (TRUE  OR  NULL) AS t_or_null,
-  (FALSE AND NULL) AS f_and_null,
-  (NULL = NULL)    AS null_eq_null,
-  (NULL IS NULL)   AS null_is_null;">Three-valued logic</button>
-      <button data-q="SELECT title FROM sqlite('/demo/places.sqlite','moz_places') WHERE title IS NULL OR title = '' LIMIT 5;">NULL is not ''</button>
-      <button data-q="EXPLAIN SELECT ext, COUNT(*) FROM files('/demo') GROUP BY ext ORDER BY ext;">EXPLAIN</button>
-      <button data-q="SHOW SOURCES;">SHOW SOURCES</button>
-      <button data-q="SELECT * form files;">A typo</button>
-      <button data-q="INSERT INTO moz_places VALUES (1);">Try to write</button>
-      <button data-q="SELECT * FROM sqlite('/demo/hard.db','quirks');">Awkward values</button>
+ORDER BY visit_count DESC
+LIMIT 10;">1 · Open my browser history</button>
+
+      <button data-q="SELECT * FROM sqlite('/demo/places.sqlite');">2 · What's even in this file?</button>
+
+      <button data-q="SELECT r.title, r.sent_by, COUNT(p.id) AS times_visited
+FROM csv('/demo/reading-list.csv') AS r
+LEFT JOIN sqlite('/demo/places.sqlite', 'moz_places') AS p
+  ON p.url LIKE r.url_pattern
+GROUP BY r.title, r.sent_by
+ORDER BY times_visited DESC;">3 · Did I read what people sent me?</button>
+
+      <button data-q="INSERT INTO moz_places VALUES (1);">4 · It can't touch my data</button>
+
+      <button data-q="SELECT * form sqlite('/demo/places.sqlite', 'moz_places');">5 · When I typo</button>
     </div>
 
     <div class="console">
       <textarea id="sql" spellcheck="false" rows="6"
-        data-initial="SELECT title, visit_count FROM sqlite('/demo/places.sqlite', 'moz_places')
+        data-initial="SELECT title, visit_count
+FROM sqlite('/demo/places.sqlite', 'moz_places')
 ORDER BY visit_count DESC
 LIMIT 10;"></textarea>
       <div class="console-bar">
@@ -94,156 +78,79 @@ LIMIT 10;"></textarea>
       </div>
       <div id="output" class="output"></div>
     </div>
+
+    <p class="sub small">
+      Five sources, and they join to each other:
+      <code>sqlite()</code> · <code>files()</code> · <code>csv()</code> ·
+      <code>tail()</code> · <code>env</code>
+    </p>
   </div>
 </section>
 
 <!-- ------------------------------------------------------------- the story -->
 <section class="story" data-slide>
   <div class="wrap">
-    <h2>The problem</h2>
+    <h2>How it works</h2>
     <p class="big">
-      Almost every application on your machine keeps its data in SQLite —
-      browsers, phones, notes apps, photo libraries. You have dozens of
-      <code>.db</code> files and no way to look inside any of them without
-      installing something.
+      A read-only SQL engine that speaks the PostgreSQL wire protocol, so
+      <em>nothing to install</em> includes the client.
     </p>
-    <p>
-      And the moment you want to compare that data against a CSV, or against
-      what is actually on disk, you need a second tool and a third.
-    </p>
-  </div>
-</section>
-
-<section class="story alt" data-slide>
-  <div class="wrap">
-    <h2>The answer</h2>
-    <p class="big">One binary. One query language. Five sources.</p>
-    <table class="sources">
-      <tr><td><code>sqlite('file.db', 'table')</code></td><td>a table in a SQLite database</td></tr>
-      <tr><td><code>files</code> · <code>files('path')</code></td><td>the filesystem, walked recursively</td></tr>
-      <tr><td><code>csv('file.csv')</code></td><td>a CSV file with a header row</td></tr>
-      <tr><td><code>tail('file.log')</code></td><td>a log file, streamed as it grows</td></tr>
-      <tr><td><code>env</code></td><td>environment variables of the server process</td></tr>
-    </table>
-    <p>
-      They join to each other. That is the feature the whole tool exists for —
-      everything else zql does, something else already does better.
-    </p>
-  </div>
-</section>
-
-<section class="story" data-slide>
-  <div class="wrap">
-    <h2>Why the wire protocol</h2>
-    <p class="big">
-      "Nothing to install" has to include the client.
-    </p>
-    <p>
-      zql speaks the PostgreSQL v3 wire protocol, so every Postgres client
-      already on the machine connects to it — <code>psql</code>,
-      <code>node-postgres</code>, anything. Thirty years of somebody else's C
-      completing a handshake with a binary whose
-      <code>[dependencies]</code> section is empty.
-    </p>
-    <pre class="term"><span class="c">$</span> zql ~/projects
+    <pre class="term"><span class="c">$</span> zql ~/Library
 zql 0.1.0 — listening on 127.0.0.1:5432
-  connect with:  psql -h 127.0.0.1 -p 5432
 
-<span class="c">$</span> psql -h 127.0.0.1
-psql (16.2)
-you=&gt; SELECT ext, COUNT(*) AS n FROM files GROUP BY ext ORDER BY n DESC LIMIT 3;
- ext  |   n
-------+-------
- jpg  | 12904
- rs   |  3311
- pdf  |   688
-(3 rows)</pre>
+<span class="c">$</span> psql -h 127.0.0.1        <span class="c"># already on your machine</span>
+you=&gt; SELECT ext, COUNT(*) FROM files GROUP BY ext;</pre>
+    <pre class="pipeline">TCP :5432  →  wire  →  lexer → parser  →  binder  →  executor  →  sources
+                                              │                        │
+                              names become indices        sqlite · files · csv · tail · env</pre>
+    <p>
+      Every column name and type is resolved <em>before</em> the first row is
+      read — because the protocol writes the result's shape before its contents.
+      That one rule is why binding is a phase of its own.
+    </p>
   </div>
 </section>
 
 <section class="story alt" data-slide>
   <div class="wrap">
-    <h2>What was written by hand</h2>
-    <p class="big">Seventeen substitutions. Every one of them a crate a working engineer would have reached for.</p>
+    <h2>Seventeen packages, written by hand</h2>
+    <p class="big">Every one of these is a crate a working engineer reaches for without thinking.</p>
     <div class="grid">
-      <div><b>rusqlite</b><span>SQLite file format: header, b-tree walk, varints, serial types, overflow chains, <code>CREATE TABLE</code> parsing, type affinity</span></div>
-      <div><b>tokio-postgres</b><span>PostgreSQL v3 wire protocol: framing, startup, <code>RowDescription</code>, <code>ErrorResponse</code>, cancellation</span></div>
+      <div><b>rusqlite</b><span>The SQLite file format — header, b-tree walk, varints, overflow chains, <code>CREATE TABLE</code> parsing</span></div>
+      <div><b>tokio-postgres</b><span>The PostgreSQL v3 wire protocol — framing, startup, errors, cancellation</span></div>
       <div><b>sqlparser-rs</b><span>SQL lexer and Pratt expression parser</span></div>
-      <div><b>tokio</b><span><code>std::thread</code> per connection, blocking IO</span></div>
-      <div><b>csv</b><span>RFC 4180 parser with quoting, embedded newlines, type sniffing</span></div>
+      <div><b>tokio</b><span>A thread per connection and blocking IO</span></div>
+      <div><b>csv</b><span>RFC 4180, with quoting, embedded newlines and type sniffing</span></div>
       <div><b>chrono</b><span>Unix time to civil date, days-from-civil</span></div>
-      <div><b>hyper</b><span>HTTP/1.1 server for the live dashboard</span></div>
-      <div><b>serde_json</b><span>JSON escaping for the event stream</span></div>
-      <div><b>walkdir</b><span>Recursive walk with symlink and permission handling</span></div>
-      <div><b>clap</b><span>Argument parsing and <code>--help</code></span></div>
-      <div><b>notify</b><span>Log following by polling, with rotation detection</span></div>
-      <div><b>ordered-float</b><span>Hashable values with canonical NaN and <code>-0.0</code></span></div>
     </div>
+    <p>…and eleven more, each with what it cost, in <code>STDLIB.md</code>.</p>
   </div>
 </section>
 
 <section class="story" data-slide>
   <div class="wrap">
-    <h2>How it is checked</h2>
+    <h2>How I know it's right</h2>
     <p class="big">
-      Against other people's implementations, not against itself.
+      Checked against other people's implementations, never against itself.
     </p>
     <p>
-      A reader checked against its own output proves self-consistency — which is
-      exactly what a misunderstanding of the format also produces.
+      A reader checked against its own output only proves it is self-consistent
+      — and self-consistency is exactly what a <em>misunderstanding</em> of the
+      format also produces. So the fixtures are written by Python's
+      <code>sqlite3</code>, and the expected values come from
+      <code>sqlite3</code> too.
+    </p>
+    <p>
+      That caught two real bugs. <code>INTEGER PRIMARY KEY</code> reads as NULL
+      in every row — the value lives in the cell header, not the record. And a
+      <code>REAL</code> column holding <code>375.0</code> is stored as an
+      <em>integer</em>. Both looked entirely plausible in the output.
     </p>
     <table class="evidence">
-      <tr><td>Wire protocol</td><td>real <code>psql</code> 16.2</td><td>88 acceptance checks</td></tr>
-      <tr><td>Wire protocol</td><td>node-postgres — JavaScript, sharing no code with libpq</td><td>27 checks</td></tr>
-      <tr><td>SQLite reader</td><td>Python 3's <code>sqlite3</code>, which wrote the fixtures</td><td>byte-exact</td></tr>
-      <tr><td>SQL semantics</td><td>golden queries in <code>tests/</code></td><td>295 tests</td></tr>
+      <tr><td>Wire protocol</td><td>real <code>psql</code> 16.2 · node-postgres</td><td>115 checks</td></tr>
+      <tr><td>SQLite reader</td><td>Python's <code>sqlite3</code></td><td>byte-exact</td></tr>
+      <tr><td>SQL semantics</td><td>golden queries</td><td>295 tests</td></tr>
     </table>
-    <p>
-      Two of those oracles caught real bugs. <code>INTEGER PRIMARY KEY</code>
-      reads as NULL in every record — the value lives in the cell header, not
-      the row. And a <code>REAL</code> column holding <code>375.0</code> stores
-      an <em>integer</em>. Both were plausible enough to survive reading the
-      output; only comparing against <code>sqlite3</code> exposed them.
-    </p>
-  </div>
-</section>
-
-<section class="story alt" data-slide>
-  <div class="wrap">
-    <h2>The bug that mattered most</h2>
-    <p class="big">A four-kilobyte query could end the server for every connected client.</p>
-    <pre class="term"><span class="c">$</span> psql -c "SELECT 1+1+1+…+1"   <span class="c"># ~1,750 terms</span>
-thread 'zql-connection' has overflowed its stack
-<span class="c">exit code 3221225725 — STATUS_STACK_OVERFLOW</span></pre>
-    <p>
-      A stack overflow is <strong>not a panic</strong>. It aborts rather than
-      unwinding, so the <code>catch_unwind</code> around each connection cannot
-      contain it — a bystander session on another connection died with it, and
-      the listener stopped accepting.
-    </p>
-    <p>
-      Fixed by bounding expression depth where the tree is <em>built</em>, which
-      closes binding, evaluation and the drop glue at once. The limit is
-      measured, not guessed: nested calls abort at ~110 levels in a debug build
-      against ~1,750 in release, so the cap is sized against the tighter number.
-      Try <code>SELECT 1+1+…</code> in the console above.
-    </p>
-  </div>
-</section>
-
-<section class="story" data-slide>
-  <div class="wrap">
-    <h2>What it does not do</h2>
-    <p class="big">A tool without a limitations section has not been tested.</p>
-    <ul class="limits">
-      <li><b>Read-only.</b> No <code>INSERT</code>, <code>UPDATE</code>, <code>DELETE</code> or DDL. zql never opens a file for writing — zero write calls in <code>src/</code>.</li>
-      <li><b>Simple query protocol only.</b> GUI clients negotiate the extended protocol and are refused with a clear <code>0A000</code>.</li>
-      <li><b>WAL databases are refused, not read stale.</b> Committed rows can live only in the <code>-wal</code> sidecar, and returning plausible-but-old rows is worse than refusing.</li>
-      <li><b>No index use.</b> Every query is a full scan; the filesystem walk is cached per session.</li>
-      <li><b>Expressions nest at most 50 deep</b>, then <code>54001</code>.</li>
-      <li><b>UTC only.</b> The standard library ships no time-zone database.</li>
-      <li><b>The backend secret is not cryptographically random.</b> There is no RNG in <code>std</code>.</li>
-    </ul>
   </div>
 </section>
 
@@ -253,19 +160,20 @@ thread 'zql-connection' has overflowed its stack
     <div class="stats">
       <div><b>1</b><span>node in <code>cargo tree</code></span></div>
       <div><b>295</b><span>tests, release and debug</span></div>
-      <div><b>0</b><span><code>unsafe</code>, FFI, or shelling out</span></div>
-      <div><b>17</b><span>packages replaced by hand</span></div>
+      <div><b>0</b><span><code>unsafe</code>, FFI, shelling out</span></div>
+      <div><b>17</b><span>packages replaced</span></div>
       <div><b>3</b><span>platforms green in CI</span></div>
-      <div><b>0</b><span>bytes differ between two clean builds</span></div>
+      <div><b>0</b><span>bytes differ between clean builds</span></div>
     </div>
     <p>
-      The build is reproducible and the hash is published. CI proves the
-      property on hardware nobody involved controls, and re-proves the empty
-      manifest on every push.
+      Read-only by construction — zero file-write calls in the source. Loopback
+      by default. WAL databases are refused rather than read stale, because
+      plausible-but-old rows are worse than an error. The full limitations list
+      is in the README, because a tool without one has not been tested.
     </p>
     <p class="cta-row">
       <a class="cta" href="https://github.com/aniket-3001/zql">Read the source</a>
-      <a class="cta ghost" href="https://github.com/aniket-3001/zql/blob/main/STDLIB.md">All seventeen substitutions</a>
+      <a class="cta ghost" href="https://github.com/aniket-3001/zql/blob/main/STDLIB.md">All seventeen</a>
     </p>
   </div>
 </section>
@@ -275,12 +183,12 @@ thread 'zql-connection' has overflowed its stack
 <footer>
   <div class="wrap">
     <p>
-      The engine on this page is compiled from <code>bridge/</code> to
-      <code>wasm32-wasip1</code> at deploy time. The WASI host it runs on is
-      hand-written in <code>web/wasi.js</code> — this page fetches nothing from
-      anywhere but its own origin, which is the same rule the binary follows.
+      The engine here is compiled from <code>bridge/</code> to
+      <code>wasm32-wasip1</code> at deploy time, onto a hand-written WASI host in
+      <code>web/wasi.js</code>. This page fetches nothing from anywhere but its
+      own origin — the same rule the binary follows.
     </p>
-    <p>MIT licensed · built for the Zero Dependency Hackathon, August 2026</p>
+    <p>MIT · Zero Dependency Hackathon, August 2026</p>
   </div>
 </footer>
 
