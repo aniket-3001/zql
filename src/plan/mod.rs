@@ -7,7 +7,6 @@
 
 pub mod binder;
 pub mod expr;
-#[allow(clippy::module_inception)]
 // `plan::plan::Plan` trips clippy's module_inception on stable, which did not
 // fire on the pinned 1.97.1 this was developed against. Kept rather than
 // renamed: `plan/` is the planning *phase* — binder, expressions, schemas —
