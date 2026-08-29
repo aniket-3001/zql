@@ -10,6 +10,7 @@ pub mod csv;
 pub mod env;
 pub mod files;
 pub mod sqlite;
+pub mod tail;
 
 use std::path::PathBuf;
 use std::sync::Arc;
