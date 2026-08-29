@@ -8,3 +8,10 @@
 
 # The fixtures are committed as .db files; only the generator's bytecode is not.
 tests/fixtures/__pycache__/
+
+# Playground build output. Built by scripts/build-web.js and by the Pages
+# workflow; a committed copy would let the deployed page run something other
+# than what this repository contains.
+/web/zql.wasm
+/web/fixtures/
+/bridge/target

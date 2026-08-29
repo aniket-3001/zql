@@ -1,0 +1,93 @@
+# Publishes the playground to GitHub Pages.
+#
+# The page runs zql's real engine, so the deploy has to build it: bridge/
+# compiled to wasm32-wasip1, which is the target that keeps std::fs working so
+# the SQLite reader can open a file. Neither the .wasm nor the demo database is
+# committed — building them here means the deployed page runs the code that is
+# actually in this repository rather than whatever was last copied in by hand.
+
+name: Playground
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'web/**'
+      - 'bridge/**'
+      - 'src/**'
+      - 'scripts/build-web.js'
+      - 'scripts/verify-web.js'
+      - 'scripts/cdp.js'
+      - 'scripts/make-demo-db.py'
+      - '.github/workflows/pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One deploy at a time; a queued run supersedes a waiting one rather than
+# cancelling a deploy already in flight.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install the toolchain and the wasm target
+        run: |
+          rustup update stable && rustup default stable
+          rustup target add wasm32-wasip1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: build the playground
+        run: node scripts/build-web.js
+
+      # A page that loads but answers wrongly is worse than one that fails to
+      # deploy, so the page is driven before it ships. The engine must start,
+      # the SQLite reader must read a real database, and every expected answer
+      # must match — the same values the test suite and sqlite3 assert.
+      - name: verify the page in a real browser
+        run: node scripts/verify-web.js
+
+      # enablement turns Pages on for the repository rather than requiring it to
+      # have been switched on by hand first.
+      - uses: actions/configure-pages@v5
+        id: pages
+        continue-on-error: true
+        with:
+          enablement: true
+
+      - name: explain a Pages failure rather than just failing
+        if: steps.pages.outcome == 'failure'
+        run: |
+          echo "::error::Could not configure GitHub Pages."
+          echo "Enable it under Settings -> Pages -> Source: GitHub Actions,"
+          echo "then re-run this workflow."
+          exit 1
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: web
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

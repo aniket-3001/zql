@@ -1,0 +1,29 @@
+# The playground's WebAssembly bridge.
+#
+# A separate crate on purpose. zql's own [dependencies] must stay empty, and it
+# does: this depends on zql, never the other way round. `cargo tree` in the
+# repository root still reports exactly one node.
+#
+# `[workspace]` is present and empty so this is a standalone crate rather than a
+# member of one — a root `cargo build` never sees it, and the manifest job that
+# proves the empty dependency list keeps checking the crate that ships.
+
+[package]
+name = "zql-bridge"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zql = { path = ".." }
+
+[profile.release]
+opt-level = "z"
+lto = true
+panic = "abort"
+strip = true

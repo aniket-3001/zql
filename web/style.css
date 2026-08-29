@@ -1,0 +1,228 @@
+/*
+ * The playground's stylesheet.
+ *
+ * No framework and no webfont: the page fetches nothing from anywhere but its
+ * own origin, which is the rule the binary follows and would be a strange one
+ * to break in the page that demonstrates it. The typeface is whatever the
+ * reader's system provides.
+ */
+
+:root {
+  --ink: #101418;
+  --ink-soft: #4a555f;
+  --ink-faint: #7b8794;
+  --paper: #fbfaf7;
+  --panel: #ffffff;
+  --rule: #e3e0d8;
+  --accent: #1c5d4a;
+  --accent-soft: #e7f0ec;
+  --warn: #8a4b13;
+  --warn-soft: #fbf0e4;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  --sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --serif: ui-serif, Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --ink: #e8e6e1; --ink-soft: #a8b0b8; --ink-faint: #79838d;
+    --paper: #14171a; --panel: #1b1f23; --rule: #2b3137;
+    --accent: #6fd3ae; --accent-soft: #17302a;
+    --warn: #e0a86a; --warn-soft: #2c2418;
+  }
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--sans);
+  font-size: 17px;
+  line-height: 1.65;
+  -webkit-text-size-adjust: 100%;
+}
+
+.wrap { max-width: 62rem; margin: 0 auto; padding: 0 1.5rem; }
+
+code, pre, kbd, textarea, table.result { font-family: var(--mono); }
+code { font-size: 0.9em; background: var(--accent-soft); padding: 0.1em 0.35em; border-radius: 3px; }
+pre code, .term code { background: none; padding: 0; }
+
+/* ------------------------------------------------------------- masthead */
+
+.masthead {
+  padding: 4.5rem 0 3.5rem;
+  border-bottom: 1px solid var(--rule);
+  background: linear-gradient(180deg, var(--accent-soft), transparent);
+}
+.eyebrow {
+  font-size: 0.78rem; letter-spacing: 0.09em; text-transform: uppercase;
+  color: var(--accent); font-weight: 600; margin: 0 0 0.6rem;
+}
+.masthead h1 {
+  font-family: var(--mono); font-size: clamp(3rem, 11vw, 5.5rem);
+  margin: 0 0 0.5rem; letter-spacing: -0.04em; font-weight: 700; line-height: 1;
+}
+.lede {
+  font-family: var(--serif); font-size: clamp(1.1rem, 2.4vw, 1.45rem);
+  line-height: 1.5; max-width: 40rem; margin: 0 0 1.75rem; color: var(--ink-soft);
+}
+.lede strong { color: var(--ink); }
+
+.manifest, .term {
+  background: var(--panel); border: 1px solid var(--rule); border-left: 3px solid var(--accent);
+  border-radius: 4px; padding: 1rem 1.15rem; margin: 0 0 1.75rem;
+  font-size: 0.86rem; line-height: 1.6; overflow-x: auto; white-space: pre;
+}
+.manifest .c, .term .c { color: var(--ink-faint); }
+
+.cta-row { display: flex; flex-wrap: wrap; gap: 0.7rem; margin: 1.5rem 0 0; }
+.cta {
+  display: inline-block; padding: 0.6rem 1.15rem; border-radius: 4px;
+  background: var(--accent); color: var(--paper); text-decoration: none;
+  font-weight: 600; font-size: 0.92rem; border: 1px solid var(--accent);
+  font-family: inherit; cursor: pointer;
+}
+.cta.ghost { background: transparent; color: var(--accent); }
+.cta:hover { opacity: 0.88; }
+
+/* ------------------------------------------------------------ playground */
+
+.play { padding: 3.5rem 0; border-bottom: 1px solid var(--rule); }
+.play h2, .story h2 {
+  font-size: clamp(1.5rem, 3.4vw, 2.1rem); margin: 0 0 0.6rem; letter-spacing: -0.02em;
+}
+.sub { color: var(--ink-soft); max-width: 46rem; margin: 0 0 1.6rem; }
+
+.presets { display: flex; flex-wrap: wrap; gap: 0.45rem; margin-bottom: 1rem; }
+.presets button {
+  font: inherit; font-size: 0.83rem; padding: 0.4rem 0.75rem;
+  background: var(--panel); color: var(--ink-soft);
+  border: 1px solid var(--rule); border-radius: 999px; cursor: pointer;
+}
+.presets button:hover { border-color: var(--accent); color: var(--accent); }
+
+.console { border: 1px solid var(--rule); border-radius: 6px; overflow: hidden; background: var(--panel); }
+#sql {
+  display: block; width: 100%; border: 0; resize: vertical;
+  padding: 1rem 1.15rem; font-size: 0.88rem; line-height: 1.6;
+  background: var(--panel); color: var(--ink); outline: none;
+  border-bottom: 1px solid var(--rule); min-height: 7rem;
+}
+.console-bar {
+  display: flex; align-items: center; gap: 1rem; flex-wrap: wrap;
+  padding: 0.65rem 1.15rem; border-bottom: 1px solid var(--rule);
+  background: var(--paper);
+}
+#run {
+  font: inherit; font-size: 0.86rem; font-weight: 600; cursor: pointer;
+  padding: 0.4rem 0.9rem; border-radius: 4px;
+  background: var(--accent); color: var(--paper); border: 1px solid var(--accent);
+}
+#run:disabled { opacity: 0.45; cursor: default; }
+#run kbd { font-size: 0.85em; opacity: 0.8; }
+#status { font-size: 0.83rem; color: var(--ink-faint); }
+#status.failed { color: #b3261e; font-weight: 600; }
+.roundtrip { font-size: 0.78rem; color: var(--ink-faint); margin-left: auto; }
+
+.output { padding: 0; min-height: 6rem; }
+.scroller { overflow-x: auto; max-height: 26rem; overflow-y: auto; }
+
+table.result { width: 100%; border-collapse: collapse; font-size: 0.84rem; }
+table.result th {
+  text-align: left; padding: 0.55rem 0.9rem; border-bottom: 1px solid var(--rule);
+  position: sticky; top: 0; background: var(--paper); white-space: nowrap;
+}
+.col-name { display: block; font-weight: 700; }
+.col-type { display: block; font-size: 0.76em; color: var(--ink-faint); font-weight: 400; }
+table.result td {
+  padding: 0.4rem 0.9rem; border-bottom: 1px solid var(--rule);
+  white-space: nowrap; max-width: 32rem; overflow: hidden; text-overflow: ellipsis;
+}
+table.result td.num { text-align: right; font-variant-numeric: tabular-nums; }
+table.result tr:last-child td { border-bottom: 0; }
+.null { color: var(--ink-faint); font-style: italic; }
+
+.meta, .note { font-size: 0.8rem; color: var(--ink-faint); padding: 0.7rem 1.15rem; margin: 0; }
+details.plan { border-top: 1px solid var(--rule); }
+details.plan summary { padding: 0.6rem 1.15rem; cursor: pointer; font-size: 0.82rem; color: var(--ink-soft); }
+details.plan pre { margin: 0; padding: 0 1.15rem 1rem; font-size: 0.82rem; color: var(--ink-soft); }
+
+.error { padding: 1.1rem 1.15rem; background: var(--warn-soft); }
+.error-head { margin: 0 0 0.6rem; display: flex; gap: 0.6rem; align-items: baseline; flex-wrap: wrap; }
+.sqlstate {
+  font-family: var(--mono); font-size: 0.78rem; font-weight: 700;
+  background: var(--warn); color: var(--paper); padding: 0.1rem 0.45rem; border-radius: 3px;
+}
+.error-msg { font-weight: 600; }
+.caret { font-family: var(--mono); font-size: 0.82rem; margin: 0 0 0.6rem; color: var(--warn); white-space: pre; overflow-x: auto; }
+.detail, .hint { margin: 0.2rem 0 0; font-size: 0.84rem; color: var(--ink-soft); font-family: var(--mono); }
+
+/* ---------------------------------------------------------------- story */
+
+.story { padding: 3.5rem 0; border-bottom: 1px solid var(--rule); }
+.story.alt { background: var(--panel); }
+.story p { max-width: 44rem; color: var(--ink-soft); }
+.story .big {
+  font-family: var(--serif); font-size: clamp(1.15rem, 2.6vw, 1.5rem);
+  line-height: 1.5; color: var(--ink); margin: 0 0 1.1rem;
+}
+
+.sources, .evidence { border-collapse: collapse; margin: 1.25rem 0; font-size: 0.9rem; width: 100%; }
+.sources td, .evidence td { padding: 0.5rem 1rem 0.5rem 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.sources td:first-child { white-space: nowrap; }
+.evidence td:last-child { color: var(--accent); font-weight: 600; white-space: nowrap; }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(15rem, 1fr)); gap: 1px; background: var(--rule); border: 1px solid var(--rule); margin: 1.5rem 0; }
+.grid > div { background: var(--paper); padding: 0.9rem 1rem; }
+.story.alt .grid > div { background: var(--panel); }
+.grid b { display: block; font-family: var(--mono); font-size: 0.86rem; color: var(--warn); margin-bottom: 0.3rem; text-decoration: line-through; }
+.grid span { display: block; font-size: 0.82rem; color: var(--ink-soft); line-height: 1.5; }
+
+.limits { max-width: 48rem; padding-left: 1.2rem; }
+.limits li { margin-bottom: 0.55rem; color: var(--ink-soft); font-size: 0.94rem; }
+.limits b { color: var(--ink); }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: 1.5rem; margin: 1.75rem 0; }
+.stats > div { text-align: center; }
+.stats b { display: block; font-family: var(--mono); font-size: clamp(2rem, 6vw, 3rem); color: var(--accent); line-height: 1; letter-spacing: -0.03em; }
+.stats span { display: block; font-size: 0.8rem; color: var(--ink-faint); margin-top: 0.35rem; }
+
+footer { padding: 2.5rem 0 3.5rem; font-size: 0.84rem; color: var(--ink-faint); }
+footer p { max-width: 44rem; margin: 0 0 0.6rem; }
+
+/* -------------------------------------------------------- present mode */
+/*
+ * The same page, projected: each section becomes a full-screen slide driven by
+ * the arrow keys. One artifact rather than a deck that can drift from the site.
+ */
+
+body.presenting { overflow: hidden; }
+body.presenting > header,
+body.presenting > main > section,
+body.presenting > footer { display: none; }
+body.presenting [data-slide].current {
+  display: flex; position: fixed; inset: 0; z-index: 50;
+  flex-direction: column; justify-content: center;
+  overflow-y: auto; background: var(--paper); padding: 3rem 0; border: 0;
+}
+body.presenting [data-slide].current .wrap { max-width: 68rem; }
+body.presenting [data-slide].current h2 { font-size: clamp(2rem, 5vw, 3.2rem); }
+body.presenting [data-slide].current .big { font-size: clamp(1.4rem, 3.2vw, 2rem); }
+body.presenting [data-slide].current .presets { display: none; }
+body.presenting #present { display: none; }
+
+@media (max-width: 40rem) {
+  body { font-size: 16px; }
+  .masthead { padding: 3rem 0 2.5rem; }
+  .play, .story { padding: 2.5rem 0; }
+  .stats { gap: 1rem; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+}
