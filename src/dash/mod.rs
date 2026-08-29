@@ -4,4 +4,5 @@
 //! page and one event stream — and is small enough that a framework would be
 //! more code than the thing it replaced.
 
+pub mod page;
 pub mod sse;
