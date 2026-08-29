@@ -19,5 +19,6 @@
 //! before execution begins. That is why binding is a distinct phase and not
 //! something the operators discover as they run.
 
+pub mod datetime;
 pub mod error;
 pub mod value;
