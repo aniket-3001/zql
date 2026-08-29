@@ -782,6 +782,56 @@ mod tests {
         assert!(!registry.cancel(9001, 42), "the entry outlived unregister");
     }
 
+/// A stack overflow is the one failure `catch_unwind` cannot contain.
+    ///
+    /// Unlike a panic, it aborts the process, so a single connection sending a
+    /// deeply nested expression would take every other session and the listener
+    /// with it. Measured before `MAX_EXPR_DEPTH` existed: `SELECT 1+1+…+1` at
+    /// 1,750 terms killed the server outright, exit code `0xC00000FD`.
+    ///
+    /// This is the same shape as the `catch_unwind` test above and asserts the
+    /// same thing — a bystander and the listener both live — because the whole
+    /// point is that the guard has to hold for the failure that cannot be caught
+    /// after the fact.
+    #[test]
+    fn a_deeply_nested_query_cannot_take_the_server_down() {
+        let port = start_test_server();
+
+        let mut bystander = handshake(port);
+        send_query(&mut bystander, "SELECT 1");
+        assert!(read_reply(&mut bystander).unwrap().contains(&b'D'), "no row before");
+
+        // Far past the depth at which the binder used to exhaust its stack.
+        let mut attacker = handshake(port);
+        let deep = format!("SELECT {}1", "1+".repeat(5000));
+        send_query(&mut attacker, &deep);
+        let reply = read_reply(&mut attacker).expect("the query should be answered, not fatal");
+        assert!(
+            reply.contains(&b'E'),
+            "a 5,000-deep expression should be refused with an error"
+        );
+
+        // The refusal must leave this connection usable, not merely alive.
+        send_query(&mut attacker, "SELECT 1");
+        assert!(
+            read_reply(&mut attacker).unwrap().contains(&b'D'),
+            "the refusing session desynchronised"
+        );
+
+        // And nothing else may have noticed.
+        send_query(&mut bystander, "SELECT 2");
+        assert!(
+            read_reply(&mut bystander).unwrap().contains(&b'D'),
+            "an unrelated session died with the deep query"
+        );
+        let mut after = handshake(port);
+        send_query(&mut after, "SELECT 3");
+        assert!(
+            read_reply(&mut after).unwrap().contains(&b'D'),
+            "the listener stopped accepting after the deep query"
+        );
+    }
+
     #[test]
     fn backend_keys_are_positive_and_distinct_per_session() {
         let server = Server::new(Config {

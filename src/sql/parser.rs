@@ -17,7 +17,7 @@
 //! by zql". That is the difference between a stated boundary and an unfinished
 //! program, and it costs a keyword table entry.
 
-use crate::error::{Result, ZqlError};
+use crate::error::{Result, SqlState, ZqlError};
 use crate::sql::ast::*;
 use crate::sql::lexer::tokenize;
 use crate::sql::token::{did_you_mean, Keyword, Symbol, Token, TokenKind};
@@ -54,14 +54,88 @@ static END_OF_INPUT: Token = Token {
     position: 1,
 };
 
+/// The deepest expression tree the parser will build.
+///
+/// # Why this exists, and why it lives here
+///
+/// Every phase downstream of parsing walks the expression tree by recursion:
+/// [`collect_aggregates`](crate::plan::binder), the binder, the fingerprint
+/// used to match `GROUP BY` keys, evaluation, and — quietly — the drop glue
+/// `Box<Expr>` generates. An unbounded tree is therefore an unbounded stack.
+///
+/// **A stack overflow is not a panic.** It aborts the process outright, so the
+/// `catch_unwind` net in `server::handle` cannot contain it and one connection
+/// takes down every other one along with the listener. That makes this the only
+/// input in the program that can end the server, which is why the limit belongs
+/// where the tree is *built* rather than in each of the five things that walk
+/// it: one check here closes all of them at once.
+///
+/// # Where the number comes from
+///
+/// It is measured, not guessed, because the shapes cost wildly different
+/// amounts of stack and the cheapest one to *write* is not the cheapest one to
+/// run. Depth at which each shape aborted a 2 MiB thread, before this cap:
+///
+/// | shape                          | release | debug |
+/// |---|---|---|
+/// | `lower(lower(…))`              |   ~1750 |  ~110 |
+/// | `CASE WHEN … THEN CASE …`      |   ~1750 |  ~150 |
+/// | `((((1))))`                    |   ~1750 |  ~190 |
+/// | `1+1+1+…` (flat, binder-bound) |   ~1750 |  ~190 |
+///
+/// Nested calls are the worst case: each level costs six frames of parser
+/// recursion on top of the binder's, and an unoptimised build spends several
+/// kilobytes on each. So the limit is set against **110 in a debug build**, not
+/// against the far roomier release figure — `cargo test` and `cargo run` must be
+/// as safe as the shipped binary, and a limit that depended on the profile would
+/// mean a query that worked in one and failed in the other.
+///
+/// 50 leaves better than a 2× margin on the worst shape in the worst profile,
+/// and is still an order of magnitude past real SQL: the deepest expression in
+/// `docs/SQL-SUBSET.md` nests 4 levels. A long alternation should be written
+/// `IN (…)`, which is flat at any length, and the hint says so.
+///
+/// For comparison, SQLite's own default is 1000 — but SQLite parses into a flat
+/// structure and does not carry zql's per-level parser frames.
+const MAX_EXPR_DEPTH: u32 = 50;
+
 struct Parser {
     tokens: Vec<Token>,
     index: usize,
+    /// How deeply nested the expression currently being parsed is.
+    depth: u32,
 }
 
 impl Parser {
     fn new(tokens: Vec<Token>) -> Self {
-        Parser { tokens, index: 0 }
+        Parser {
+            tokens,
+            index: 0,
+            depth: 0,
+        }
+    }
+
+    /// Claims one level of nesting, refusing rather than recursing further.
+    fn enter(&mut self) -> Result<()> {
+        self.depth += 1;
+        if self.depth > MAX_EXPR_DEPTH {
+            return Err(self.too_complex());
+        }
+        Ok(())
+    }
+
+    fn leave(&mut self) {
+        self.depth = self.depth.saturating_sub(1);
+    }
+
+    fn too_complex(&self) -> ZqlError {
+        ZqlError::new(
+            SqlState::StatementTooComplex,
+            format!("expression nests deeper than {MAX_EXPR_DEPTH} levels"),
+        )
+        .at(self.peek().position)
+        .with_detail("zql walks expressions recursively, so their depth is bounded")
+        .with_hint("split the query, or write the condition with IN (...) instead")
     }
 
     // ---------------------------------------------------------------- cursor
@@ -497,7 +571,34 @@ impl Parser {
     /// first one that does not, which is what makes `a + b * c` and
     /// `a * b + c` come out differently from the same code.
     fn parse_expr(&mut self, min_bp: u8) -> Result<Expr> {
+        // Nesting — parentheses, unary operators, function arguments, `CASE` —
+        // all descends through here, so one guard on the way in bounds the
+        // parser's own recursion as well as the tree it produces.
+        self.enter()?;
+        let parsed = self.parse_expr_inner(min_bp);
+        self.leave();
+        parsed
+    }
+
+    /// Accounts for one operator folded into the left-hand side.
+    ///
+    /// **The Pratt loop is iterative**, which is what makes `a - b - c` group to
+    /// the left — and it means [`enter`](Self::enter) never sees the depth that
+    /// loop adds. `1+1+1+…` is precisely that shape: a flat parse producing a
+    /// tree one level deeper per operator, and the cheapest way to build one
+    /// deep enough to exhaust the binder's stack. So the folds are counted here
+    /// and charged against the same budget.
+    fn fold(&self, folded: &mut u32) -> Result<()> {
+        *folded += 1;
+        if self.depth.saturating_add(*folded) > MAX_EXPR_DEPTH {
+            return Err(self.too_complex());
+        }
+        Ok(())
+    }
+
+    fn parse_expr_inner(&mut self, min_bp: u8) -> Result<Expr> {
         let mut left = self.parse_prefix()?;
+        let mut folded: u32 = 0;
 
         loop {
             let token = self.peek().clone();
@@ -508,6 +609,7 @@ impl Parser {
                 if lbp <= min_bp {
                     break;
                 }
+                self.fold(&mut folded)?;
                 self.advance();
                 left = self.parse_negated_predicate(left)?;
                 continue;
@@ -518,6 +620,7 @@ impl Parser {
                 if lbp <= min_bp {
                     break;
                 }
+                self.fold(&mut folded)?;
                 self.advance();
                 let negated = self.eat_keyword(Keyword::Not);
                 self.expect_keyword(Keyword::Null)?;
@@ -540,6 +643,7 @@ impl Parser {
                 if lbp <= min_bp {
                     break;
                 }
+                self.fold(&mut folded)?;
                 left = self.parse_predicate(left, false)?;
                 continue;
             }
@@ -552,6 +656,7 @@ impl Parser {
                 break;
             }
 
+            self.fold(&mut folded)?;
             self.advance();
             let right = self.parse_expr(rbp)?;
             let position = left.position;

@@ -499,6 +499,93 @@ fn the_postgres_cast_operator_is_refused_by_name() {
     );
 }
 
+/// The one input that could end the *process*, not just the query.
+///
+/// Binding, fingerprinting, evaluation and `Box<Expr>`'s own drop glue all walk
+/// the tree recursively, so an unbounded tree is an unbounded stack — and a
+/// stack overflow is not a panic. It aborts, which `catch_unwind` cannot
+/// contain, so it would take every other connection down with it. Measured
+/// before the cap existed: `SELECT 1+1+...+1` killed the whole server at 1,750
+/// terms, taking an unrelated session and the listener with it.
+#[test]
+fn a_deeply_nested_expression_is_refused_rather_than_overflowing_the_stack() {
+    // Every shape that builds a deep tree, including the flat one the Pratt
+    // loop produces iteratively and so never recurses on while parsing.
+    let shapes: Vec<(&str, String)> = vec![
+        ("left-nested binary", format!("SELECT {}1", "1+".repeat(5000))),
+        ("nested parens", format!("SELECT {}1{}", "(".repeat(5000), ")".repeat(5000))),
+        ("unary chain", format!("SELECT {}true", "NOT ".repeat(5000))),
+        ("function nesting", format!("SELECT {}'x'{}", "lower(".repeat(5000), ")".repeat(5000))),
+        ("boolean chain", format!("SELECT {}true", "true AND ".repeat(5000))),
+        ("concat chain", format!("SELECT {}'x'", "'x'||".repeat(5000))),
+        ("comparison chain", format!("SELECT {}1", "1=".repeat(5000))),
+        ("CASE nesting", format!("SELECT {}1{}", "CASE WHEN true THEN ".repeat(3000), " END".repeat(3000))),
+        ("IS NULL chain", format!("SELECT 1{}", " IS NULL".repeat(5000))),
+        ("LIKE chain", format!("SELECT 'a'{}", " LIKE 'a'".repeat(5000))),
+        ("deep WHERE", format!("SELECT 1 FROM files WHERE {}1 > 0", "1+".repeat(5000))),
+        ("deep inside a function argument", format!("SELECT abs({}1)", "1+".repeat(5000))),
+    ];
+
+    for (name, sql) in shapes {
+        let error = parse(&sql)
+            .err()
+            .unwrap_or_else(|| panic!("{name}: a 5,000-deep expression was accepted"));
+        assert_eq!(
+            error.state,
+            SqlState::StatementTooComplex,
+            "{name}: refused with {} instead",
+            error.state.code()
+        );
+    }
+}
+
+
+/// The cap must sit far above anything a person writes.
+#[test]
+fn ordinary_and_generated_query_shapes_stay_well_inside_the_depth_limit() {
+    // Every canonical example in the frozen grammar.
+    for sql in CANONICAL {
+        assert!(parse(sql).is_ok(), "{sql} was refused");
+    }
+
+    // Deeper than anything typed by hand, and it must still parse.
+    let ors = (0..20)
+        .map(|n| format!("size = {n}"))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    assert!(parse(&format!("SELECT name FROM files WHERE {ors}")).is_ok());
+
+    // A realistically knotty predicate: nesting, functions and a CASE together.
+    assert!(parse(
+        "SELECT CASE WHEN lower(trim(name)) LIKE '%.rs' THEN upper(substr(name, 1, 3))          ELSE coalesce(ext, '?') END FROM files          WHERE (size > 100 AND NOT is_dir) OR (depth < 3 AND ext IN ('rs', 'toml'))"
+    )
+    .is_ok());
+
+    // A long alternation belongs in IN (...), which is flat at any length —
+    // 500 items nest two levels, not five hundred.
+    let list = (0..500).map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+    assert!(
+        parse(&format!("SELECT name FROM files WHERE size IN ({list})")).is_ok(),
+        "IN is the flat spelling and must not be caught by a depth limit"
+    );
+}
+
+
+/// The refusal has to be usable, not merely non-fatal.
+#[test]
+fn the_depth_refusal_names_the_limit_and_carries_a_position() {
+    let error = parse(&format!("SELECT {}1", "1+".repeat(5000))).unwrap_err();
+    assert_eq!(error.state, SqlState::StatementTooComplex);
+    assert_eq!(error.state.code(), "54001");
+    assert!(
+        error.message.contains("50"),
+        "the message should name the limit, was: {}",
+        error.message
+    );
+    assert!(error.position.is_some(), "no position for the caret");
+    assert!(error.hint.is_some(), "no hint");
+}
+
 // ------------------------------------------------------------------- helpers
 
 fn filter_of(sql: &str) -> Expr {
