@@ -1,12 +1,13 @@
-//! Turning an AST into something runnable.
+//! Planning: names in, indices out.
 //!
-//! Binding is a distinct phase because `RowDescription` must be written before
-//! the first `DataRow`: the full output schema has to be known before execution
-//! begins, so names and types are resolved here rather than discovered by the
-//! operators as they run.
+//! The binder is the only place that knows both the AST and the catalogue.
+//! Above it everything is text the user wrote; below it everything is a column
+//! index and a resolved source, which is what lets the executor run without
+//! ever performing a lookup by name.
 
 pub mod binder;
 pub mod expr;
+#[allow(clippy::module_inception)]
 // `plan::plan::Plan` trips clippy's module_inception on stable, which did not
 // fire on the pinned 1.97.1 this was developed against. Kept rather than
 // renamed: `plan/` is the planning *phase* — binder, expressions, schemas —
