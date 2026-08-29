@@ -4,4 +4,5 @@
 //! server has single-digit clients; a thread pool here would be complexity
 //! bought with nothing.
 
+pub mod cancel;
 pub mod startup;
