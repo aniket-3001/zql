@@ -5,4 +5,5 @@
 //! begins, so names and types are resolved here rather than discovered by the
 //! operators as they run.
 
+pub mod expr;
 pub mod schema;
