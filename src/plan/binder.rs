@@ -331,10 +331,23 @@ impl Binder<'_> {
 
                 for item in items {
                     let expr = self.bind_expr(&item.expr, schema, grouping)?;
-                    let name = item
-                        .alias
-                        .clone()
-                        .unwrap_or_else(|| default_column_name(&item.expr));
+                    let name = match &item.alias {
+                        Some(alias) => alias.clone(),
+                        // A bare column reports the name the *source* declared,
+                        // not the folded text the user typed. The two differ
+                        // only for `sqlite()`, whose columns keep their original
+                        // case — and there the alternative is that `SELECT *`
+                        // and `SELECT visitcount` disagree about what the column
+                        // is called.
+                        None => match &expr {
+                            CompiledExpr::Column(index) => schema
+                                .columns
+                                .get(*index)
+                                .map(|column| column.name.clone())
+                                .unwrap_or_else(|| default_column_name(&item.expr)),
+                            _ => default_column_name(&item.expr),
+                        },
+                    };
                     columns.push(Column::new(name, self.type_of(&expr, schema)));
                     exprs.push(expr);
                 }
@@ -639,6 +652,11 @@ impl Binder<'_> {
         if let Some(qualifier) = qualifier {
             return schema
                 .index_of_qualified(qualifier, name)
+                // A `sqlite()` column keeps the case it was declared with, so an
+                // unquoted reference — which the lexer has folded — needs a
+                // second look before this is really an error. See
+                // `Schema::index_of_ignoring_case`.
+                .or_else(|| schema.index_of_qualified_ignoring_case(qualifier, name))
                 .ok_or_else(|| self.no_such_column(&format!("{qualifier}.{name}"), schema, expr));
         }
 
@@ -646,14 +664,27 @@ impl Binder<'_> {
             1 => schema
                 .index_of(name)
                 .ok_or_else(|| ZqlError::internal("column count disagreed with lookup")),
-            0 => Err(self.no_such_column(name, schema, expr)),
-            _ => Err(ZqlError::new(
-                SqlState::UndefinedColumn,
-                format!("column \"{name}\" is ambiguous"),
-            )
-            .at(expr.position)
-            .with_hint("qualify it with the source alias, for example `f.name`")),
+            0 => match schema.count_named_ignoring_case(name) {
+                // Only reachable for a case-preserved column, and only once an
+                // exact match has already failed — so no query that worked
+                // before can change meaning here.
+                1 => schema
+                    .index_of_ignoring_case(name)
+                    .ok_or_else(|| ZqlError::internal("column count disagreed with lookup")),
+                0 => Err(self.no_such_column(name, schema, expr)),
+                _ => Err(self.ambiguous(name, expr)),
+            },
+            _ => Err(self.ambiguous(name, expr)),
         }
+    }
+
+    fn ambiguous(&self, name: &str, expr: &Expr) -> ZqlError {
+        ZqlError::new(
+            SqlState::UndefinedColumn,
+            format!("column \"{name}\" is ambiguous"),
+        )
+        .at(expr.position)
+        .with_hint("qualify it with the source alias, for example `f.name`")
     }
 
     fn no_such_column(&self, name: &str, schema: &Schema, expr: &Expr) -> ZqlError {

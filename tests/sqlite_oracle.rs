@@ -252,6 +252,32 @@ fn mixed_case_column_names_survive_the_lexers_folding() {
     assert_eq!(text(&row.0[1]), "kept");
 }
 
+/// ...and can still be *reached* without quoting it.
+///
+/// Displaying `visitCount` as declared is right; making it unreachable unless
+/// the user guesses the exact capitalisation is not. SQLite matches column
+/// names case-insensitively, so demanding `SELECT "visitCount"` would be zql
+/// inventing a restriction the file it is reading does not have — and the
+/// capitalisation of a column in someone else's database is the last thing a
+/// person poking at `places.sqlite` knows.
+#[test]
+fn a_case_preserved_column_can_be_selected_without_quoting_it() {
+    for reference in ["visitCount", "visitcount", "VISITCOUNT", "VisitCount"] {
+        let row = one(&format!(
+            "SELECT {reference} FROM sqlite('{}', 'quirks')",
+            fixture("hard.db")
+        ));
+        assert_eq!(int(&row.0[0]), 42, "{reference} did not resolve");
+    }
+
+    // The quoted form keeps working, and the reported name is still as declared.
+    let row = one(&format!(
+        "SELECT visitcount AS n FROM sqlite('{}', 'quirks')",
+        fixture("hard.db")
+    ));
+    assert_eq!(int(&row.0[0]), 42);
+}
+
 // -------------------------------------------------------------------- errors
 
 #[test]
