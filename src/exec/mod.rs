@@ -15,6 +15,9 @@
 //! Push-based execution vectorises better and is materially harder to read.
 //! Throughput is not a judging criterion and readability is.
 
+pub mod scan;
+pub mod values;
+
 use crate::error::Result;
 use crate::value::Row;
 
