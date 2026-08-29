@@ -6,6 +6,7 @@
 //! result that dies on row zero with a `RowDescription` already sent.
 
 pub mod cache;
+pub mod csv;
 pub mod env;
 pub mod files;
 
