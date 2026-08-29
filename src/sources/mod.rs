@@ -7,6 +7,7 @@
 
 pub mod cache;
 pub mod env;
+pub mod files;
 
 use std::path::PathBuf;
 use std::sync::Arc;
