@@ -1,0 +1,44 @@
+zql — dependency proof
+=======================
+
+Captured 2026-08-29 13:23:25 UTC on rustc 1.97.1 (8bab26f4f 2026-07-14)
+
+$ cargo tree
+zql v0.1.0 (D:\Aniket\Zero Dependency\zql)
+
+$ cargo tree --edges all
+zql v0.1.0 (D:\Aniket\Zero Dependency\zql)
+
+$ grep -A2 "\[dependencies\]" Cargo.toml
+[dependencies]
+
+# Note: `panic = "abort"` is deliberately NOT set. The connection handler uses
+
+$ grep -c "^\[\[package\]\]" Cargo.lock
+1
+
+The three greps below are word-anchored (`grep -w`). An earlier capture of this
+file searched for the bare substrings and reported 0, which was luck rather than
+proof: "external" contains "extern", and two comments in src/dash/page.rs use the
+word. Nothing in zql is unsafe, foreign, or dynamically linked, and these are the
+searches that actually establish it.
+
+$ grep -rnw "unsafe" src/ | wc -l
+0
+
+$ grep -rnw "extern" src/ | wc -l           # no FFI
+0
+
+$ grep -rn "#\[link\|link_name\|dlopen" src/ | wc -l
+0
+
+$ grep -rn "Command::new" src/ | wc -l      # does not shell out
+0
+
+$ cargo clippy --all-targets   (warnings)
+0
+
+$ cargo test --release          (tests passed)
+295
+
+cargo tree shows exactly one node: the crate itself.
