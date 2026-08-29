@@ -1,6 +1,10 @@
 # zql
 
 [![CI](https://github.com/aniket-3001/zql/actions/workflows/ci.yml/badge.svg)](https://github.com/aniket-3001/zql/actions/workflows/ci.yml)
+[![Playground](https://github.com/aniket-3001/zql/actions/workflows/pages.yml/badge.svg)](https://github.com/aniket-3001/zql/actions/workflows/pages.yml)
+
+**[Try it in your browser →](https://aniket-3001.github.io/zql/)** — zql's engine
+compiled to WebAssembly, reading a real SQLite file. Not a recording.
 
 **Open any `.db` file and query it with SQL. Your browser history, your app
 data, your phone backup. Nothing to install.**

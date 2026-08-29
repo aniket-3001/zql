@@ -161,7 +161,7 @@ function serve() {
 // ------------------------------------------------------------------- drive
 
 async function main() {
-  for (const required of ['index.html', 'app.js', 'wasi.js', 'style.css', 'zql.wasm']) {
+  for (const required of (process.env.WEB_URL ? [] : ['index.html', 'app.js', 'wasi.js', 'style.css', 'zql.wasm'])) {
     if (!fs.existsSync(path.join(web, required))) {
       console.error(`missing web/${required} — run: node scripts/build-web.js`);
       process.exit(1);
@@ -174,7 +174,11 @@ async function main() {
     process.exit(1);
   }
 
-  const server = await serve();
+  // WEB_URL points the same checks at a deployed site instead of the local
+  // build — the last thing worth knowing is that what shipped works, not that
+  // what is on this disk does.
+  const target = process.env.WEB_URL;
+  const server = target ? null : await serve();
   const profile = fs.mkdtempSync(path.join(require('os').tmpdir(), 'zql-verify-'));
   const browser = spawn(chrome, [
     '--headless=new', '--disable-gpu', '--no-sandbox',
@@ -197,12 +201,12 @@ async function main() {
   const failures = [];
   try {
     const { runInBrowser } = require('./cdp.js');
-    const result = await runInBrowser(endpoint, `http://127.0.0.1:${PORT}/`, CHECKS);
+    const result = await runInBrowser(endpoint, target || `http://127.0.0.1:${PORT}/`, CHECKS);
     failures.push(...result.failures);
     console.log(result.log.join('\n'));
   } finally {
     browser.kill();
-    server.close();
+    if (server) server.close();
     // Chrome releases its profile lazily, and on Windows the unlink races its
     // shutdown. A temp directory left behind is not a reason to fail a run that
     // has already answered the question it was asked.
