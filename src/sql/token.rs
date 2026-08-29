@@ -300,6 +300,87 @@ impl Unsupported {
 }
 
 /// The keywords zql implements, for the "did you mean" hint.
+///
+/// Only implemented words appear here: suggesting `UNION` to someone who typed
+/// `UNIOM` would be a worse answer than no suggestion at all.
+pub const IMPLEMENTED_KEYWORDS: &[&str] = &[
+    "SELECT", "DISTINCT", "FROM", "WHERE", "GROUP", "BY", "HAVING", "ORDER", "LIMIT", "OFFSET",
+    "AS", "JOIN", "INNER", "LEFT", "OUTER", "ON", "ASC", "DESC", "NULLS", "FIRST", "LAST", "AND",
+    "OR", "NOT", "LIKE", "IN", "BETWEEN", "IS", "NULL", "TRUE", "FALSE", "CASE", "WHEN", "THEN",
+    "ELSE", "END", "CAST", "SHOW", "EXPLAIN",
+];
+
+/// The closest implemented keyword within one edit, if there is exactly one.
+///
+/// Restricting this to distance 1 keeps it honest: at distance 2 the
+/// suggestions stop being obviously right, and a confident wrong hint costs
+/// more than silence.
+pub fn did_you_mean(word: &str) -> Option<&'static str> {
+    let upper = word.to_ascii_uppercase();
+    let mut best: Option<&'static str> = None;
+    for candidate in IMPLEMENTED_KEYWORDS {
+        if within_one_edit(&upper, candidate) {
+            if best.is_some() {
+                return None; // ambiguous — say nothing
+            }
+            best = Some(candidate);
+        }
+    }
+    best
+}
+
+/// Whether two words differ by one insertion, deletion, substitution, or swap
+/// of adjacent characters.
+///
+/// The swap is why this is Damerau's distance rather than plain Levenshtein,
+/// and it is not a refinement — it is the *whole point*. The canonical typo
+/// this hint exists for is `SELECT * form files`, and `form` is two plain edits
+/// away from `FROM` while being one transposition away. Without the swap rule
+/// the hint stays silent on the one case worth catching.
+///
+/// A full distance matrix would be the general answer; for the single question
+/// actually asked — "is this within one edit?" — a linear scan is shorter and
+/// easier to be sure about.
+fn within_one_edit(left: &str, right: &str) -> bool {
+    let (left, right) = (left.as_bytes(), right.as_bytes());
+    let (shorter, longer) = if left.len() <= right.len() {
+        (left, right)
+    } else {
+        (right, left)
+    };
+
+    match longer.len().saturating_sub(shorter.len()) {
+        // Same length: one substitution, or one adjacent transposition.
+        0 => {
+            let differing: Vec<usize> = (0..shorter.len())
+                .filter(|index| shorter[*index] != longer[*index])
+                .collect();
+            match differing.as_slice() {
+                [_] => true,
+                [first, second] => {
+                    *second == first + 1
+                        && shorter[*first] == longer[*second]
+                        && shorter[*second] == longer[*first]
+                }
+                _ => false,
+            }
+        }
+        // One longer: the shorter must be the longer with one byte removed.
+        1 => {
+            let mut skipped = false;
+            let mut index = 0;
+            for byte in longer {
+                match shorter.get(index) {
+                    Some(expected) if expected == byte => index += 1,
+                    _ if !skipped => skipped = true,
+                    _ => return false,
+                }
+            }
+            index == shorter.len()
+        }
+        _ => false,
+    }
+}
 
 /// Operators and punctuation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
