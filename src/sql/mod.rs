@@ -4,4 +4,5 @@
 //! deliberately small. A SQL parser is not hard; it is *unbounded*, and every
 //! feature suggests two more. The subset is the schedule.
 
+pub mod lexer;
 pub mod token;
