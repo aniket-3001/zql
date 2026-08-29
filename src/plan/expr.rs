@@ -65,6 +65,10 @@ pub enum CompiledExpr {
         expr: Box<CompiledExpr>,
         ty: Type,
     },
+    Function {
+        function: ScalarFn,
+        args: Vec<CompiledExpr>,
+    },
 }
 
 impl CompiledExpr {
@@ -145,6 +149,7 @@ impl CompiledExpr {
 
             CompiledExpr::Cast { expr, ty } => cast(&expr.eval(row)?, *ty),
 
+            CompiledExpr::Function { function, args } => function.eval(args, row),
         }
     }
 
@@ -173,6 +178,7 @@ impl CompiledExpr {
                 .or_else(|| else_result.as_ref().map(|expr| expr.result_type()))
                 .unwrap_or(Type::Unknown),
             CompiledExpr::Cast { ty, .. } => *ty,
+            CompiledExpr::Function { function, args } => function.result_type(args),
         }
     }
 }
@@ -519,6 +525,299 @@ fn cast(value: &Value, ty: Type) -> Result<Value> {
     })
 }
 
+// --------------------------------------------------------- scalar functions
+
+/// The closed scalar function set from `SQL-SUBSET.md` §4.
+///
+/// Closed is the point: an open set is how a parser gains a feature a week.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScalarFn {
+    Lower,
+    Upper,
+    Length,
+    Substr,
+    Trim,
+    Replace,
+    Abs,
+    Round,
+    Coalesce,
+    NullIf,
+    TypeOf,
+    Date,
+    DateTime,
+}
+
+impl ScalarFn {
+    pub fn lookup(name: &str) -> Option<ScalarFn> {
+        use ScalarFn::*;
+        Some(match name {
+            "lower" => Lower,
+            "upper" => Upper,
+            "length" => Length,
+            "substr" => Substr,
+            "trim" => Trim,
+            "replace" => Replace,
+            "abs" => Abs,
+            "round" => Round,
+            "coalesce" => Coalesce,
+            "nullif" => NullIf,
+            "typeof" => TypeOf,
+            "date" => Date,
+            "datetime" => DateTime,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        use ScalarFn::*;
+        match self {
+            Lower => "lower",
+            Upper => "upper",
+            Length => "length",
+            Substr => "substr",
+            Trim => "trim",
+            Replace => "replace",
+            Abs => "abs",
+            Round => "round",
+            Coalesce => "coalesce",
+            NullIf => "nullif",
+            TypeOf => "typeof",
+            Date => "date",
+            DateTime => "datetime",
+        }
+    }
+
+    /// Accepted argument counts, checked at bind time so a bad call fails
+    /// before a single row is read.
+    pub fn arity(self) -> (usize, Option<usize>) {
+        use ScalarFn::*;
+        match self {
+            Lower | Upper | Length | Trim | Abs | TypeOf | Date | DateTime => (1, Some(1)),
+            Round => (1, Some(2)),
+            Substr => (2, Some(3)),
+            Replace => (3, Some(3)),
+            NullIf => (2, Some(2)),
+            // Variadic, but one argument would be a no-op worth flagging.
+            Coalesce => (2, None),
+        }
+    }
+
+    fn result_type(self, args: &[CompiledExpr]) -> Type {
+        use ScalarFn::*;
+        match self {
+            Lower | Upper | Trim | Replace | TypeOf | Date | DateTime => Type::Text,
+            Length => Type::Int,
+            Substr => Type::Text,
+            Abs | Round => args.first().map(|a| a.result_type()).unwrap_or(Type::Real),
+            // Both take the type of their first argument.
+            Coalesce | NullIf => args.first().map(|a| a.result_type()).unwrap_or(Type::Unknown),
+        }
+    }
+
+    fn eval(self, args: &[CompiledExpr], row: &Row) -> Result<Value> {
+        use ScalarFn::*;
+
+        // `COALESCE` must not evaluate arguments past the first non-NULL, so
+        // it is handled before the others are evaluated at all.
+        if self == Coalesce {
+            for arg in args {
+                let value = arg.eval(row)?;
+                if !value.is_null() {
+                    return Ok(value);
+                }
+            }
+            return Ok(Value::Null);
+        }
+
+        let values: Vec<Value> = args
+            .iter()
+            .map(|arg| arg.eval(row))
+            .collect::<Result<_>>()?;
+
+        // Every remaining function is NULL-propagating except TYPEOF, which
+        // exists precisely to report on a NULL.
+        if self != TypeOf && values.iter().any(Value::is_null) {
+            return Ok(Value::Null);
+        }
+
+        let first = values.first().cloned().unwrap_or(Value::Null);
+
+        Ok(match self {
+            Lower => Value::Text(text_of(&first)?.to_lowercase()),
+            Upper => Value::Text(text_of(&first)?.to_uppercase()),
+            Trim => Value::Text(text_of(&first)?.trim().to_string()),
+            // Characters, not bytes: `length('写真')` is 2.
+            Length => Value::Int(text_of(&first)?.chars().count() as i64),
+            TypeOf => Value::Text(first.type_of().name().to_string()),
+
+            Substr => substr(&values)?,
+            Replace => {
+                let (subject, from, to) = (
+                    text_of(&values[0])?,
+                    text_of(&values[1])?,
+                    text_of(&values[2])?,
+                );
+                if from.is_empty() {
+                    // Replacing the empty string would either loop forever or
+                    // insert between every character; neither is useful.
+                    Value::Text(subject)
+                } else {
+                    Value::Text(subject.replace(&from, &to))
+                }
+            }
+
+            Abs => match first {
+                Value::Int(number) => Value::Int(
+                    number
+                        .checked_abs()
+                        .ok_or_else(|| overflow("abs"))?,
+                ),
+                Value::Real(number) => Value::Real(number.abs()),
+                other => return Err(type_error(format!("abs({})", other.type_of().name()))),
+            },
+            Round => round(&values)?,
+
+            NullIf => {
+                if compare(&values[0], &values[1])? == Some(Ordering::Equal) {
+                    Value::Null
+                } else {
+                    values[0].clone()
+                }
+            }
+
+            Date => Value::Text(datetime::format_date(unix_seconds(&first)?)),
+            DateTime => Value::Text(datetime::format_timestamp(unix_seconds(&first)?)),
+
+            // Returned above, before any argument was evaluated.
+            Coalesce => return Err(ZqlError::internal("coalesce reached the strict path")),
+        })
+    }
+}
+
+/// `SUBSTR(s, start [, len])`, **1-indexed** because SQL is.
+///
+/// That off-by-one is the single most likely place for this function set to be
+/// quietly wrong, which is why it is called out here and has its own test.
+fn substr(values: &[Value]) -> Result<Value> {
+    let subject: Vec<char> = text_of(&values[0])?.chars().collect();
+    let start = integer_of(&values[1])?;
+
+    // SQL counts from 1. A start below 1 is not an error: it addresses
+    // characters before the string, which simply do not exist, and the length
+    // is measured from there.
+    let begin = start.max(1);
+    let skip = (begin - 1).min(subject.len() as i64) as usize;
+
+    let take = match values.get(2) {
+        None => subject.len() - skip,
+        Some(value) => {
+            let requested = integer_of(value)?;
+            if requested <= 0 {
+                0
+            } else {
+                // Characters consumed by a start below 1 count against the
+                // requested length, matching SQLite and Postgres.
+                let lost = (begin - start).max(0);
+                (requested - lost).max(0) as usize
+            }
+        }
+    };
+
+    Ok(Value::Text(subject.into_iter().skip(skip).take(take).collect()))
+}
+
+fn round(values: &[Value]) -> Result<Value> {
+    let digits = match values.get(1) {
+        Some(value) => integer_of(value)?,
+        None => 0,
+    };
+
+    match &values[0] {
+        // Rounding an integer to any number of decimal places is the integer.
+        Value::Int(number) if digits >= 0 => Ok(Value::Int(*number)),
+        value => {
+            let number = numeric(value, BinaryOp::Add)?;
+            if digits == 0 {
+                return Ok(Value::Real(number.round()));
+            }
+            // Clamped so that the scale factor stays finite; beyond ~17 digits
+            // an f64 has no precision left to round to anyway.
+            let scale = 10f64.powi(digits.clamp(-15, 15) as i32);
+            let scaled = number * scale;
+            if !scaled.is_finite() {
+                return Ok(Value::Real(number));
+            }
+            Ok(Value::Real(scaled.round() / scale))
+        }
+    }
+}
+
+// -------------------------------------------------------- aggregate functions
+
+/// The closed aggregate set from `SQL-SUBSET.md` §4.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggFn {
+    Count,
+    Sum,
+    Avg,
+    Min,
+    Max,
+}
+
+impl AggFn {
+    pub fn lookup(name: &str) -> Option<AggFn> {
+        Some(match name {
+            "count" => AggFn::Count,
+            "sum" => AggFn::Sum,
+            "avg" => AggFn::Avg,
+            "min" => AggFn::Min,
+            "max" => AggFn::Max,
+            _ => return None,
+        })
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            AggFn::Count => "count",
+            AggFn::Sum => "sum",
+            AggFn::Avg => "avg",
+            AggFn::Min => "min",
+            AggFn::Max => "max",
+        }
+    }
+
+    /// The type this aggregate produces, given its argument's type.
+    pub fn result_type(self, argument: Type) -> Type {
+        match self {
+            AggFn::Count => Type::Int,
+            // `AVG` of integers is not an integer.
+            AggFn::Avg => Type::Real,
+            // `SUM` widens only if its input is real.
+            AggFn::Sum => {
+                if argument == Type::Real {
+                    Type::Real
+                } else {
+                    Type::Int
+                }
+            }
+            // These return one of their inputs, whatever that was.
+            AggFn::Min | AggFn::Max => argument,
+        }
+    }
+}
+
+/// One aggregate in a query, bound and ready to run.
+#[derive(Debug, Clone)]
+pub struct AggSpec {
+    pub function: AggFn,
+    /// `None` for `COUNT(*)`, which takes no expression at all.
+    pub argument: Option<CompiledExpr>,
+    pub distinct: bool,
+    /// The output column name, before any alias.
+    pub name: String,
+    pub result_type: Type,
+}
+
 // ----------------------------------------------------------------- helpers
 
 /// Renders a value as text for `||`, `CAST` and the string functions.
@@ -543,6 +842,27 @@ fn expect_text(value: &Value, context: &str) -> Result<String> {
         Value::Text(text) => Ok(text.clone()),
         other => Err(type_error(format!(
             "{context} needs text, not {}",
+            other.type_of().name()
+        ))),
+    }
+}
+
+fn integer_of(value: &Value) -> Result<i64> {
+    match value {
+        Value::Int(number) => Ok(*number),
+        Value::Real(number) => Ok(number.trunc() as i64),
+        other => Err(type_error(format!(
+            "expected a whole number, not {}",
+            other.type_of().name()
+        ))),
+    }
+}
+
+fn unix_seconds(value: &Value) -> Result<i64> {
+    match value {
+        Value::Int(seconds) | Value::Timestamp(seconds) => Ok(*seconds),
+        other => Err(type_error(format!(
+            "expected a Unix timestamp, not {}",
             other.type_of().name()
         ))),
     }
@@ -726,8 +1046,75 @@ mod tests {
         assert!(!like_matches(&subject, &pattern));
     }
 
+    #[test]
+    fn substr_is_one_indexed() {
+        let call = |args: Vec<Value>| {
+            ScalarFn::Substr
+                .eval(
+                    &args
+                        .into_iter()
+                        .map(CompiledExpr::Literal)
+                        .collect::<Vec<_>>(),
+                    &Row::new(vec![]),
+                )
+                .unwrap()
+        };
 
+        let text = |value: Value| match value {
+            Value::Text(text) => text,
+            other => panic!("expected text, got {other:?}"),
+        };
 
+        assert_eq!(text(call(vec![Value::Text("hello".into()), Value::Int(1)])), "hello");
+        assert_eq!(text(call(vec![Value::Text("hello".into()), Value::Int(2)])), "ello");
+        assert_eq!(
+            text(call(vec![
+                Value::Text("hello".into()),
+                Value::Int(2),
+                Value::Int(3)
+            ])),
+            "ell"
+        );
+        // Past the end is empty, not an error.
+        assert_eq!(text(call(vec![Value::Text("hi".into()), Value::Int(99)])), "");
+        // Characters, not bytes.
+        assert_eq!(
+            text(call(vec![
+                Value::Text("写真x".into()),
+                Value::Int(1),
+                Value::Int(2)
+            ])),
+            "写真"
+        );
+    }
+
+    #[test]
+    fn coalesce_short_circuits_and_never_evaluates_a_later_error() {
+        // The second argument would divide by zero if it were evaluated.
+        let expr = CompiledExpr::Function {
+            function: ScalarFn::Coalesce,
+            args: vec![
+                CompiledExpr::Literal(Value::Int(7)),
+                CompiledExpr::Binary {
+                    op: BinaryOp::Div,
+                    left: literal(Value::Int(1)),
+                    right: literal(Value::Int(0)),
+                },
+            ],
+        };
+        assert!(matches!(eval(&expr), Value::Int(7)));
+    }
+
+    #[test]
+    fn typeof_reports_on_null_while_others_propagate_it() {
+        let call = |function: ScalarFn| {
+            function
+                .eval(&[CompiledExpr::Literal(Value::Null)], &Row::new(vec![]))
+                .unwrap()
+        };
+        assert!(matches!(call(ScalarFn::TypeOf), Value::Text(name) if name == "unknown"));
+        assert!(call(ScalarFn::Lower).is_null());
+    }
 
     #[test]
     fn casting_a_huge_float_to_an_integer_errors_rather_than_saturating() {
