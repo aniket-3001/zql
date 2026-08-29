@@ -5,6 +5,9 @@
 //! begins, so names and types are resolved here rather than discovered by the
 //! operators as they run.
 
+pub mod binder;
 pub mod expr;
 pub mod plan;
 pub mod schema;
+
+pub use binder::bind;
