@@ -9,6 +9,7 @@
 //! Getting that off by one is the classic first bug in a hand-written
 //! implementation, so no caller ever computes it — [`Message::write_to`] does.
 
+pub mod frontend;
 pub mod oid;
 
 use std::io::{self, Read, Write};
