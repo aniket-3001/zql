@@ -1,0 +1,14 @@
+# Build settings for reproducibility.
+#
+# Scoped to the windows-gnu target on purpose. `-Wl,--no-insert-timestamp` is a
+# GNU ld flag; putting it under `[build]` would pass it to every linker,
+# including MSVC's and Linux's, and break `cargo build --release` for anyone not
+# on this exact target. The whole point of the one-command build is that it
+# works on a machine that has only Rust.
+[target.x86_64-pc-windows-gnu]
+rustflags = [
+    # The MinGW linker stamps the current time into the PE header. Two
+    # otherwise-identical builds then differ, which is what made the first
+    # attempt at a reproducible build fail. See BUILD.md.
+    "-Clink-arg=-Wl,--no-insert-timestamp",
+]
