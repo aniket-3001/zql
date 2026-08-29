@@ -101,10 +101,10 @@ come back to this exact screen at 4:30.)*
 > both — plus your filesystem, log files, and environment variables. Five
 > sources, and they all join to each other."
 
-**Do:** click into the console and change `LIMIT 10` — actually, edit the
-visible `ORDER BY times_visited DESC` to `ASC`, then Ctrl+Enter.
+**Do:** click into the console, change `DESC` to `ASC` on the last line, and
+press **Ctrl+Enter**. The two zeros jump to the top.
 
-> "And it's live — I can just edit it."
+> "And it's live — I can just edit it. Worst offenders first."
 
 ## 2:10 – 2:40 · It can't hurt you, and it helps when you slip
 
