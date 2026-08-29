@@ -31,13 +31,30 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # `cargo tree` needs a crate target: with no src/lib.rs or src/main.rs
+      # yet, cargo refuses the manifest outright with "no targets specified"
+      # rather than reporting an empty tree. So the cargo-based assertions wait
+      # for a target to exist, while the file-based ones below run from the
+      # first push. Both are unconditional the moment src/ lands.
+      - name: is there a crate target yet
+        id: target
+        run: |
+          if [ -f src/lib.rs ] || [ -f src/main.rs ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::no crate target yet — cargo tree deferred, file checks still run"
+          fi
+
       - name: cargo tree shows exactly one node
+        if: steps.target.outputs.exists == 'true'
         run: |
           cargo tree | tee /tmp/tree.txt
           lines=$(grep -c . /tmp/tree.txt)
           test "$lines" -eq 1 || { echo "::error::cargo tree has $lines nodes, expected 1"; exit 1; }
 
       - name: and still one with every edge kind included
+        if: steps.target.outputs.exists == 'true'
         run: |
           # --edges all covers dev- and build-dependencies too, which a plain
           # `cargo tree` would not show. An empty manifest has to mean empty.
@@ -63,12 +80,18 @@ jobs:
           # for bare substrings and reported zero by luck: "external" contains
           # "extern", and two comments in src/dash/page.rs use the word.
           fail=0
+          # `grep -r` over a missing directory reports nothing, which would make
+          # every check below pass for the wrong reason. Say so rather than
+          # bank a free green.
+          if [ ! -d src/ ]; then
+            echo "::notice::no src/ yet — nothing to scan"
+          fi
           for pattern in unsafe extern; do
-            hits=$(grep -rnw "$pattern" src/ | wc -l)
+            hits=$(grep -rnw "$pattern" src/ 2>/dev/null | wc -l)
             test "$hits" -eq 0 || { echo "::error::found $hits uses of \`$pattern\`"; grep -rnw "$pattern" src/; fail=1; }
           done
           for pattern in 'Command::new' '#\[link' 'link_name' 'dlopen'; do
-            hits=$(grep -rn "$pattern" src/ | wc -l)
+            hits=$(grep -rn "$pattern" src/ 2>/dev/null | wc -l)
             test "$hits" -eq 0 || { echo "::error::found $pattern"; fail=1; }
           done
           test ! -f build.rs || { echo "::error::a build script would break the one-command build"; fail=1; }
