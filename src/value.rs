@@ -197,6 +197,92 @@ impl Row {
         self.0.is_empty()
     }
 }
+
+/// A tuple of values usable as a hash-map key.
+///
+/// # Why this is not just `Vec<Value>`
+///
+/// `Value` cannot derive `Hash` or `Eq`, because `f64` implements neither:
+/// `NaN != NaN`, and two bit patterns that compare equal (`0.0` and `-0.0`)
+/// must hash the same. Reals therefore hash on their **bits**, with every NaN
+/// folded to one canonical pattern and negative zero folded to positive.
+/// Without that folding a `GROUP BY` over a column containing NaN silently
+/// produces one group per row.
+///
+/// # Grouping equality is not comparison equality
+///
+/// Under three-valued logic `NULL = NULL` is unknown. Under `GROUP BY` all
+/// NULLs land in **one** group, and `DISTINCT` keeps one of them. So this type
+/// deliberately implements a *different* equality from [`compare`] — grouping
+/// asks "is this the same value", not "are these known to be equal".
+#[derive(Debug, Clone)]
+pub struct GroupKey(pub Vec<Value>);
+
+impl GroupKey {
+    pub fn new(values: Vec<Value>) -> Self {
+        GroupKey(values)
+    }
+}
+
+/// Canonicalises a real so that equal values always hash alike.
+fn real_bits(value: f64) -> u64 {
+    if value.is_nan() {
+        // Every NaN is the same group.
+        f64::NAN.to_bits()
+    } else if value == 0.0 {
+        // -0.0 and 0.0 are the same group.
+        0f64.to_bits()
+    } else {
+        value.to_bits()
+    }
+}
+
+impl PartialEq for GroupKey {
+    fn eq(&self, other: &Self) -> bool {
+        if self.0.len() != other.0.len() {
+            return false;
+        }
+        self.0.iter().zip(&other.0).all(|(left, right)| {
+            match (left, right) {
+                // Grouping treats NULLs as equal to each other.
+                (Value::Null, Value::Null) => true,
+                (Value::Bool(a), Value::Bool(b)) => a == b,
+                (Value::Int(a), Value::Int(b)) => a == b,
+                (Value::Timestamp(a), Value::Timestamp(b)) => a == b,
+                (Value::Real(a), Value::Real(b)) => real_bits(*a) == real_bits(*b),
+                (Value::Text(a), Value::Text(b)) => a == b,
+                (Value::Blob(a), Value::Blob(b)) => a == b,
+                // An integer and a real that denote the same number group
+                // together, so `GROUP BY x` does not split 1 from 1.0.
+                (Value::Int(a), Value::Real(b)) | (Value::Real(b), Value::Int(a)) => {
+                    (*a as f64) == *b
+                }
+                _ => false,
+            }
+        })
+    }
+}
+
+impl Eq for GroupKey {}
+
+impl std::hash::Hash for GroupKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        for value in &self.0 {
+            match value {
+                Value::Null => 0u8.hash(state),
+                Value::Bool(b) => (1u8, b).hash(state),
+                Value::Text(text) => (2u8, text).hash(state),
+                Value::Blob(bytes) => (3u8, bytes).hash(state),
+                Value::Timestamp(seconds) => (4u8, seconds).hash(state),
+                // Integers and reals share a hash space, because `Int(1)` and
+                // `Real(1.0)` are equal above and equal values must hash alike.
+                Value::Int(number) => (5u8, real_bits(*number as f64)).hash(state),
+                Value::Real(number) => (5u8, real_bits(*number)).hash(state),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
