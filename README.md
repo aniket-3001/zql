@@ -281,13 +281,21 @@ precisely what `psql` does on Ctrl-C.
 Two clean builds of this source produce a byte-identical binary.
 
 ```
-sha256  B623A1F7E3DF4E8C2D2CD4E013EC3404562EB07A6CA64B8BCF9B5A6780F41114
-size    1,813,656 bytes
+sha256  8DE8C0DE6526C7AE79837A4FCFA4A3A21259AE1B312A7511C15B69518C28E56D
+size    1,814,434 bytes
 ```
 
 Reproduce with [`build.ps1`](build.ps1). **The envelope, stated honestly:** same
-machine, same toolchain version (`1.97.1-x86_64-pc-windows-gnu`), same target.
-This is not a claim that any machine anywhere produces these bytes.
+toolchain version (`1.97.1-x86_64-pc-windows-gnu`), same target. This is not a
+claim that any machine anywhere produces these bytes — a Linux ELF is not a
+Windows PE, and the CI job proves the *property* (determinism) rather than this
+particular value.
+
+The build directory does **not** affect the output: a fresh `git clone` into a
+temporary path produces the same hash as the original working tree, verified
+across three clean builds in two directories. That is stronger than the
+"same machine" envelope this section used to claim, and it is why no
+`--remap-path-prefix` is needed.
 
 It did not work out of the box. Two clean builds initially differed because the
 MinGW linker stamps the current time into the PE header;
