@@ -15,6 +15,8 @@
 //! Push-based execution vectorises better and is materially harder to read.
 //! Throughput is not a judging criterion and readability is.
 
+pub mod filter;
+pub mod project;
 pub mod scan;
 pub mod values;
 
