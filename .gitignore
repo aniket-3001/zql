@@ -1,0 +1,10 @@
+/target
+
+# Editor and tooling artifacts, not part of the project.
+**/*.rs.bk
+*.pdb
+.claude/
+.tokensave/
+
+# The fixtures are committed as .db files; only the generator's bytecode is not.
+tests/fixtures/__pycache__/

@@ -1,0 +1,16 @@
+[package]
+name = "zql"
+version = "0.1.0"
+edition = "2021"
+description = "Query SQLite files, CSVs, JSON and your filesystem with SQL, over the PostgreSQL wire protocol."
+license = "MIT"
+authors = ["Aniket Gupta"]
+
+# The point of the whole exercise. `cargo tree` must show exactly one node.
+[dependencies]
+
+# Note: `panic = "abort"` is deliberately NOT set. The connection handler uses
+# `catch_unwind` as a last-resort net so that one malformed database file cannot
+# take the whole server down, and that requires unwinding.
+[profile.release]
+opt-level = 3
