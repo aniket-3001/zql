@@ -24,6 +24,7 @@ pub mod error;
 pub mod exec;
 pub mod plan;
 pub mod server;
+pub mod sources;
 pub mod sql;
 pub mod value;
 pub mod wire;
