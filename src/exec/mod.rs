@@ -15,6 +15,7 @@
 //! Push-based execution vectorises better and is materially harder to read.
 //! Throughput is not a judging criterion and readability is.
 
+pub mod aggregate;
 pub mod distinct;
 pub mod filter;
 pub mod limit;
